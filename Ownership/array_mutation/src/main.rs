@@ -1,11 +1,50 @@
 
 
 fn array_mut_ownership(array: [u32; 5], operation: char, other_member: u32) -> [u32; 5] {
-    todo!()
+    // todo!( consume the array and return a new object )
+
+    // This function takes ownership of 'array'
+
+    // 'array' is immutable, but we want to change it
+    // so let's shadow 'array' by moving it to a ->mutable<- variable also named 'array'
+    let mut array = array;
+    for i in 0..5 {
+        if operation == '+' {
+            array[i] += other_member;
+        } else if operation == '-' {
+            array[i] -= other_member;
+        } else if operation == '*' {
+            array[i] *= other_member;
+        } else if operation == '/' {
+            array[i] /= other_member;
+        } else {
+            return array;  // invalid operation = ignore (do nothing to array)
+        }
+    }
+    array
 }
 
 fn array_mut_mut(array: &mut [u32], operation: char, other_member: u32) {
-    todo!()
+    // todo!( modify inplace )
+    // Question: why do we need to explicitly dereference in this case?
+    // e.g. If we are modifying a slice, dereferencing is handled for us
+    // However, -> we need to explicitly dereference primitive types <-
+    // e.g. In this case, 'member' is a mutable reference to the integer
+    // stored in the array collection.
+
+    for member in array {  // using 'for' to iterate over a slice
+        if operation == '+' {
+            *member += other_member;  // need to dereference before modifying the value
+        } else if operation == '-' {
+            *member -= other_member;
+        } else if operation == '*' {
+            *member *= other_member;
+        } else if operation == '/' && other_member != 0 {  // avoid division by zero
+            *member /= other_member;
+        } else {
+            break;  // invalid operation = ignore (do nothing to array)
+        }
+    }
 }
 
 #[cfg(test)]

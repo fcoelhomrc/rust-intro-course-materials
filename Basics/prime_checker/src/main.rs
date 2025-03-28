@@ -1,7 +1,23 @@
 fn main() {}
 
 fn check_if_prime(n: u32) -> bool {
-    todo!("Implementar check_if_prime aqui")
+    // todo!("Implementar check_if_prime aqui")
+
+    // special cases
+    if n == 0 || n == 1 {
+        return false;
+    }
+
+    let mut is_prime = true;
+    let mut i : u32 = 2;
+    while i < n {  // exclude check division by 1 and itself
+        if n % i == 0 {
+            is_prime = false;
+            break;
+        }
+        i += 1;
+    }
+    is_prime
 }
 
 #[cfg(test)]

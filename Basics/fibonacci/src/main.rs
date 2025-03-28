@@ -1,6 +1,23 @@
 fn fibonacci(n: u32) -> u32 {
-    todo!("Implementar fibonacci aqui")
+    // todo!("Implementar fibonacci aqui")
+
+    if n == 0 {
+        return 0;
+    }
+
+    let mut prev : u32 = 0;
+    let mut curr : u32 = 1;
+
+    let mut i : u32 = 2;
+    while i <= n {
+        let next = prev + curr;
+        prev = curr;
+        curr = next;
+        i += 1;
+    }
+    curr
 }
+
 
 #[cfg(test)]
 mod fibonacci_test {
