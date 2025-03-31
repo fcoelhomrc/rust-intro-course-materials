@@ -144,7 +144,7 @@ fn option_input() -> u32 {
     let mut input: String = String::new();
     io::stdin().read_line(&mut input).unwrap();
     let input: &str = input.trim();
-    input.parse::<u32>().unwrap()  // typecast to u32
+    input.parse::<u32>().unwrap() // typecast to u32
 }
 
 fn string_input() -> String {
@@ -162,19 +162,12 @@ fn book_input() -> Book {
     let author = string_input();
     println!("Please enter its keywords (whitespace separated): ");
     let keywords = string_input();
-    let keywords : Vec<&str> = keywords.split_whitespace().collect();
+    let keywords: Vec<&str> = keywords.split_whitespace().collect();
 
-    Book::new(
-        &isbn,
-        &title,
-        &author,
-        keywords,
-    )
+    Book::new(&isbn, &title, &author, keywords)
 }
 
-
 fn main() {
-
     let (book1, book2, book3) = create_examples();
     let mut lib = Library {
         books: vec![book1, book2, book3],
@@ -189,29 +182,24 @@ fn main() {
             1 => {
                 let book = book_input();
                 lib.add_book(&book)
-            },
+            }
             2 => {
                 let book = book_input();
                 lib.remove_book(&book)
-            },
+            }
             3 => {
                 let book = book_input();
                 lib.give_book(&book)
-            },
+            }
             4 => {
                 let book = book_input();
                 lib.receive_book(&book)
-            },
+            }
             5 => println!("{:#?}", lib),
             _ => break,
         }
     }
-
 }
-
-
-
-
 
 #[cfg(test)]
 mod test {
