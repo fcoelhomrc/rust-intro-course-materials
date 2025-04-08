@@ -415,7 +415,6 @@ fn create_example_library() -> Library {
 }
 
 // CLI CODE
-
 enum SystemMsg {
     Welcome,
     Goodbye,
@@ -426,6 +425,7 @@ enum SystemMsg {
     ArtifactIDs { ids: Vec<u32> },
     IDMustBeUniqueWarning,
     InvalidOptionWarning,
+    NoMatchesFoundWarning,
 }
 
 impl SystemMsg {
@@ -471,17 +471,15 @@ impl SystemMsg {
             SystemMsg::InvalidOptionWarning => {
                 println!("Invalid option!");
             }
-            _ => {}
+            SystemMsg::NoMatchesFoundWarning => {
+                println!("No matches found!");
+            }
         }
     }
 }
 
 struct Converter {}
 impl Converter {
-    fn new() -> Self {
-        Self {}
-    }
-
     fn integer(str: String) -> u32 {
         match str.parse::<u32>() {
             Ok(integer) => integer,
@@ -497,243 +495,17 @@ impl Converter {
     }
 }
 
-enum UserInput {
-    Simple { flavor_text: String },
-    Option,
-    ArtifactID { existing_ids: Vec<u32> },
-    ArtifactKind,
-    Artifact { existing_ids: Vec<u32> },
-    Query,
-}
+struct UserInput {}
 
 impl UserInput {
-    fn user_io(&self) -> Option<String> {
+    fn ask(flavor_text: Option<&str>) -> Option<String> {
+        if let Some(flavor_text) = flavor_text {
+            println!("{}", flavor_text);
+        }
         let mut input: String = String::new();
         match io::stdin().read_line(&mut input) {
             Ok(_) => Some(input.trim().to_string()),
             Err(_) => None,
-        }
-    }
-
-    fn ask_kind(&self) -> Option<ArtifactKind> {
-        match self {
-            UserInput::ArtifactKind => {
-                SystemMsg::ArtifactKindMenu.display();
-                let option = UserInput::Option.ask();
-                let option = Converter::integer(option.unwrap());
-                let kind = match option {
-                    0 => {
-                        let pages = UserInput::Simple {
-                            flavor_text: "Enter pages: ".to_string(),
-                        }
-                        .ask()
-                        .unwrap();
-                        let pages = Converter::integer(pages);
-                        let isbn = UserInput::Simple {
-                            flavor_text: "Enter ISBN: ".to_string(),
-                        }
-                        .ask()
-                        .unwrap();
-                        Some(ArtifactKind::Book { pages, isbn })
-                    }
-                    1 => {
-                        let duration_minutes = UserInput::Simple {
-                            flavor_text: "Enter duration_minutes: ".to_string(),
-                        }
-                        .ask()
-                        .unwrap();
-                        let duration_minutes = Converter::float(duration_minutes);
-                        let narrator = UserInput::Simple {
-                            flavor_text: "Enter narrator: ".to_string(),
-                        }
-                        .ask()
-                        .unwrap();
-                        Some(ArtifactKind::AudioBook {
-                            duration_minutes,
-                            narrator,
-                        })
-                    }
-                    2 => {
-                        let dimensions_cm = {
-                            let width = UserInput::Simple {
-                                flavor_text: "Enter width_cm: ".to_string(),
-                            }
-                            .ask()
-                            .unwrap();
-                            let width = Converter::float(width);
-                            let depth = UserInput::Simple {
-                                flavor_text: "Enter depth_cm: ".to_string(),
-                            }
-                            .ask()
-                            .unwrap();
-                            let depth = Converter::float(depth);
-                            (width, depth)
-                        };
-                        let height_cm = UserInput::Simple {
-                            flavor_text: "Enter height_cm: ".to_string(),
-                        }
-                        .ask()
-                        .unwrap();
-                        let height_cm = Converter::float(height_cm);
-                        let weight_kg = UserInput::Simple {
-                            flavor_text: "Enter weight_kg: ".to_string(),
-                        }
-                        .ask()
-                        .unwrap();
-                        let weight_kg = Converter::float(weight_kg);
-                        let material = UserInput::Simple {
-                            flavor_text: "Enter material: ".to_string(),
-                        }
-                        .ask()
-                        .unwrap();
-                        Some(ArtifactKind::Statue {
-                            dimensions_cm,
-                            height_cm,
-                            weight_kg,
-                            material,
-                        })
-                    }
-                    3 => {
-                        let dimensions_cm = {
-                            let width = UserInput::Simple {
-                                flavor_text: "Enter width_cm: ".to_string(),
-                            }
-                            .ask()
-                            .unwrap();
-                            let width = Converter::float(width);
-                            let depth = UserInput::Simple {
-                                flavor_text: "Enter depth_cm: ".to_string(),
-                            }
-                            .ask()
-                            .unwrap();
-                            let depth = Converter::float(depth);
-                            (width, depth)
-                        };
-                        let style = UserInput::Simple {
-                            flavor_text: "Enter style: ".to_string(),
-                        }
-                        .ask()
-                        .unwrap();
-                        let medium = UserInput::Simple {
-                            flavor_text: "Enter medium: ".to_string(),
-                        }
-                        .ask()
-                        .unwrap();
-                        Some(ArtifactKind::Painting {
-                            dimensions_cm,
-                            style,
-                            medium,
-                        })
-                    }
-                    _ => None,
-                };
-                kind
-            }
-            _ => None,
-        }
-    }
-
-    fn ask_artifact(&self) -> Option<Artifact> {
-        match self {
-            UserInput::Artifact { existing_ids } => {
-                let id = UserInput::ArtifactID {
-                    existing_ids: existing_ids.clone(),
-                }
-                .ask()
-                .unwrap(); // TODO: handle Option properly
-                let id = Converter::integer(id);
-
-                let units = UserInput::Simple {
-                    flavor_text: "Enter units: ".to_string(),
-                }
-                    .ask()
-                    .unwrap(); // TODO: handle Option properly + Check for non-negative
-                let units = Converter::integer(units);
-
-                let title = UserInput::Simple {
-                    flavor_text: "Enter title: ".to_string(),
-                }
-                .ask()
-                .unwrap(); // TODO: handle Option properly
-                let author = UserInput::Simple {
-                    flavor_text: "Enter author: ".to_string(),
-                }
-                .ask()
-                .unwrap(); // TODO: handle Option properly
-
-                let keywords = UserInput::Simple {
-                    flavor_text: "Enter keywords (whitespace separated): ".to_string(),
-                }
-                .ask();
-
-                let keywords = keywords?
-                    .to_lowercase()
-                    .split_whitespace()
-                    .map(|s| String::from(s))
-                    .collect::<Vec<String>>();
-
-                let kind = UserInput::ArtifactKind.ask_kind().unwrap(); // TODO: handle Option properly
-
-                Some(Artifact {
-                    id,
-                    units,
-                    title,
-                    author,
-                    keywords,
-                    kind,
-                })
-            }
-            _ => None,
-        }
-    }
-
-    fn ask(&self) -> Option<String> {
-        match self {
-            UserInput::Simple { flavor_text } => {
-                println!("{}", flavor_text);
-                self.user_io()
-            }
-            UserInput::Option => {
-                SystemMsg::OptionsMenu.display();
-                let option = loop {
-                    let option = UserInput::Simple {
-                        flavor_text: "Select option: ".to_string(),
-                    }
-                    .ask()
-                    .unwrap(); // FIXME: handle Option properly
-                    let option = option.parse::<u32>();
-                    if option.is_ok() {
-                        break option.unwrap();
-                    } else {
-                        SystemMsg::InvalidOptionWarning.display();
-                        continue;
-                    }
-                };
-                Some(option.to_string())
-            }
-            UserInput::ArtifactID { existing_ids } => {
-                println!("Enter artifact ID: ");
-                let id = loop {
-                    let input = self.user_io().unwrap().parse::<u32>(); // FIXME: handle Option correctly
-                    match input {
-                        Ok(id) if existing_ids.contains(&id) => {
-                            SystemMsg::IDMustBeUniqueWarning.display();
-                            SystemMsg::ArtifactIDs {
-                                ids: existing_ids.clone(),
-                            };
-                        }
-                        Ok(id) => {
-                            break id;
-                        }
-                        Err(_) => continue,
-                    }
-                };
-                Some(id.to_string())
-            }
-            UserInput::Query => {
-                todo!()
-            }
-            _ => todo!(),
         }
     }
 }
@@ -743,20 +515,249 @@ fn main() {
 
     SystemMsg::Welcome.display();
     loop {
-        let option = UserInput::Option.ask();
+        SystemMsg::OptionsMenu.display();
+        let option = UserInput::ask(Some("Select an option: "));
         let option = Converter::integer(option.unwrap()); // TODO: is unwrap safe?
         match option {
             0 => break,
-            1 => SystemMsg::ArtifactIDs {
-                ids: lib.list_ids(),
-            }
-            .display(),
-            2 => {
-                let artifact = UserInput::Artifact {
-                    existing_ids: lib.list_ids(),
+            1 => {
+                SystemMsg::ArtifactIDs {
+                    ids: lib.list_ids(),
                 }
-                .ask_artifact();
-                lib.add_artifact(artifact.unwrap());
+                .display();
+            }
+            2 => {
+                let id = loop {
+                    let id = UserInput::ask(Some("Enter ID: "));
+                    let id = Converter::integer(id.unwrap()); // TODO: is unwrap safe?
+                    if lib.list_ids().contains(&id) {
+                        SystemMsg::IDMustBeUniqueWarning.display();
+                        SystemMsg::ArtifactIDs {
+                            ids: lib.list_ids(),
+                        }
+                        .display();
+                        continue;
+                    } else {
+                        break id;
+                    }
+                };
+                let units = UserInput::ask(Some("Enter units: "));
+                let units = Converter::integer(units.unwrap());
+                let title = UserInput::ask(Some("Enter title: ")).unwrap();
+                let author = UserInput::ask(Some("Enter author: ")).unwrap();
+                let keywords =
+                    UserInput::ask(Some("Enter keywords (whitespace separated): ")).unwrap();
+                let keywords = keywords
+                    .to_lowercase()
+                    .split_whitespace()
+                    .map(|s| String::from(s))
+                    .collect::<Vec<_>>();
+                SystemMsg::ArtifactKindMenu.display();
+                let kind = UserInput::ask(Some("Select an option: "));
+                let kind = Converter::integer(kind.unwrap());
+                let artifact = match kind {
+                    0 => {
+                        let pages = UserInput::ask(Some("Enter pages: "));
+                        let pages = Converter::integer(pages.unwrap());
+                        let isbn = UserInput::ask(Some("Enter ISBN: ")).unwrap();
+                        Some(Artifact {
+                            id,
+                            units,
+                            title,
+                            author,
+                            keywords,
+                            kind: ArtifactKind::Book { pages, isbn },
+                        })
+                    }
+                    1 => {
+                        let duration_minutes =
+                            UserInput::ask(Some("Enter duration (in minutes): "));
+                        let duration_minutes = Converter::float(duration_minutes.unwrap());
+                        let narrator = UserInput::ask(Some("Enter narrator: ")).unwrap();
+                        Some(Artifact {
+                            id,
+                            units,
+                            title,
+                            author,
+                            keywords,
+                            kind: ArtifactKind::AudioBook {
+                                duration_minutes,
+                                narrator,
+                            },
+                        })
+                    }
+                    2 => {
+                        let dimensions_cm = {
+                            let width_cm = UserInput::ask(Some("Enter width (in cm): "));
+                            let width_cm = Converter::float(width_cm.unwrap());
+                            let depth_cm = UserInput::ask(Some("Enter depth (in cm): "));
+                            let depth_cm = Converter::float(depth_cm.unwrap());
+                            (width_cm, depth_cm)
+                        };
+                        let height_cm = UserInput::ask(Some("Enter height (in cm): "));
+                        let height_cm = Converter::float(height_cm.unwrap());
+                        let weight_kg = UserInput::ask(Some("Enter weight (in Kg): "));
+                        let weight_kg = Converter::float(weight_kg.unwrap());
+                        let material = UserInput::ask(Some("Enter material: ")).unwrap();
+                        Some(Artifact {
+                            id,
+                            units,
+                            title,
+                            author,
+                            keywords,
+                            kind: ArtifactKind::Statue {
+                                dimensions_cm,
+                                height_cm,
+                                weight_kg,
+                                material,
+                            },
+                        })
+                    }
+                    3 => {
+                        let dimensions_cm = {
+                            let width_cm = UserInput::ask(Some("Enter width (in cm): "));
+                            let width_cm = Converter::float(width_cm.unwrap());
+                            let depth_cm = UserInput::ask(Some("Enter depth (in cm): "));
+                            let depth_cm = Converter::float(depth_cm.unwrap());
+                            (width_cm, depth_cm)
+                        };
+                        let style = UserInput::ask(Some("Enter style: ")).unwrap();
+                        let medium = UserInput::ask(Some("Enter medium: ")).unwrap();
+                        Some(Artifact {
+                            id,
+                            units,
+                            title,
+                            author,
+                            keywords,
+                            kind: ArtifactKind::Painting {
+                                dimensions_cm,
+                                style,
+                                medium,
+                            },
+                        })
+                    }
+                    _ => {
+                        SystemMsg::InvalidOptionWarning.display();
+                        None
+                    },
+                };
+                if let Some(artifact) = artifact {
+                    SystemMsg::ArtifactData {
+                        artifact: artifact.clone(),
+                    }
+                        .display();
+                    lib.add_artifact(artifact);
+                }
+
+            }
+            3 => {
+                let id = UserInput::ask(Some("Enter ID: "));
+                let id = Converter::integer(id.unwrap()); // TODO: is unwrap safe?
+                lib.remove_artifact(id);
+            }
+            4 => {
+                let id = UserInput::ask(Some("Enter ID: "));
+                let id = Converter::integer(id.unwrap()); // TODO: is unwrap safe?
+                let units = UserInput::ask(Some("Enter units: "));
+                let units = Converter::integer(units.unwrap());
+                lib.lend_artifact(id, units);
+            }
+            5 => {
+                let id = UserInput::ask(Some("Enter ID: "));
+                let id = Converter::integer(id.unwrap()); // TODO: is unwrap safe?
+                let units = UserInput::ask(Some("Enter units: "));
+                let units = Converter::integer(units.unwrap());
+                lib.return_artifact(id, units);
+            }
+            6 => {
+                SystemMsg::QueryMenu.display();
+                let query_mode = UserInput::ask(Some("Select an option: "));
+                let query_mode = Converter::integer(query_mode.unwrap()); // TODO: is unwrap safe?
+                match query_mode {
+                    0 => {
+                        let id = UserInput::ask(Some("Enter ID: "));
+                        let id = Converter::integer(id.unwrap()); // TODO: is unwrap safe?
+                        let artifact = lib.get_artifact_clone_by_id(id).unwrap();
+                        SystemMsg::ArtifactData { artifact }.display();
+                    }
+                    1 => {
+                        let title = UserInput::ask(Some("Enter title: ")).unwrap();
+                        let ids = lib.find_artifact_by_title(title.as_str());
+                        if ids.is_empty() {
+                            SystemMsg::NoMatchesFoundWarning.display();
+                            return ();
+                        }
+                        ids.iter().copied().for_each(|id| {
+                            SystemMsg::ArtifactData {
+                                artifact: lib.get_artifact_clone_by_id(id).unwrap(),
+                            }
+                            .display();
+                        });
+                    }
+                    2 => {
+                        let author = UserInput::ask(Some("Enter author: ")).unwrap();
+                        let ids = lib.find_artifact_by_author(author.as_str());
+                        if ids.is_empty() {
+                            SystemMsg::NoMatchesFoundWarning.display();
+                            return ();
+                        }
+                        ids.iter().copied().for_each(|id| {
+                            SystemMsg::ArtifactData {
+                                artifact: lib.get_artifact_clone_by_id(id).unwrap(),
+                            }
+                            .display();
+                        });
+                    }
+                    3 => {
+                        SystemMsg::ArtifactKindMenu.display();
+                        let artifact_kind_option = UserInput::ask(Some("Select an option: "));
+                        let artifact_kind_option =
+                            Converter::integer(artifact_kind_option.unwrap()); // TODO: is unwrap safe?
+                        let name = match artifact_kind_option {
+                            0 => Some(ArtifactKindName::Book),
+                            1 => Some(ArtifactKindName::AudioBook),
+                            2 => Some(ArtifactKindName::Statue),
+                            3 => Some(ArtifactKindName::Painting),
+                            _ => {
+                                SystemMsg::InvalidOptionWarning.display();
+                                None
+                            },
+                        };
+                        if let Some(name) = name {
+                            let ids = lib.find_artifact_by_kind(name);
+                            if ids.is_empty() {
+                                SystemMsg::NoMatchesFoundWarning.display();
+                                return ();
+                            }
+                            ids.iter().copied().for_each(|id| {
+                                SystemMsg::ArtifactData {
+                                    artifact: lib.get_artifact_clone_by_id(id).unwrap(),
+                                }
+                                    .display();
+                            });
+                        }
+                    }
+                    4 => {
+                        let query = UserInput::ask(Some(
+                            "Enter query (whitespace separated | supports AND/OR operators): ",
+                        ))
+                        .unwrap();
+                        let ids = lib.find_artifact_by_keyword(query.as_str()).unwrap(); // FIXME: handle Option properly
+                        if ids.is_empty() {
+                            SystemMsg::NoMatchesFoundWarning.display();
+                            return ();
+                        }
+                        ids.iter().copied().for_each(|id| {
+                            SystemMsg::ArtifactData {
+                                artifact: lib.get_artifact_clone_by_id(id).unwrap(),
+                            }
+                            .display();
+                        });
+                    }
+                    _ => {
+                        SystemMsg::InvalidOptionWarning.display();
+                    },
+                }
             }
             _ => SystemMsg::InvalidOptionWarning.display(),
         }
