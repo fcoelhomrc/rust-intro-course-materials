@@ -116,15 +116,8 @@ impl Library {
     }
 
     // AUXILIARY METHODS
-    fn get_artifact_clone_by_id(&self, id: u32) -> Option<Artifact> {
-        if let Some(artifact) = self.artifacts.get(&id) {
-            return Some(artifact.clone());
-        }
-        None
-    }
-
-    fn list_ids(&self) -> Vec<&u32> {
-        self.artifacts.keys().collect::<Vec<&u32>>()
+    fn list_ids(&self) -> Vec<u32> {
+        self.artifacts.keys().copied().collect::<Vec<u32>>()
     }
 
     fn has_artifact(&self, id: u32) -> bool {
@@ -213,6 +206,13 @@ impl Library {
     }
 
     // INTERFACE METHODS
+    fn get_artifact_clone_by_id(&self, id: u32) -> Option<Artifact> {
+        if let Some(artifact) = self.artifacts.get(&id) {
+            return Some(artifact.clone());
+        }
+        None
+    }
+
     fn add_artifact(&mut self, artifact: Artifact) {
         if self.has_artifact(artifact.id) {
             todo!() // TODO: handle adding Artifact.id that already exists (increase units?)
@@ -414,8 +414,148 @@ fn create_example_library() -> Library {
     Library::new(artifacts)
 }
 
-// cli code
-fn main() {}
+// CLI CODE
+enum UserValue {
+    String { value: String },
+    Integer { value: u32 },
+    Float { value: f32 },
+}
+
+
+enum SystemMsg {
+    Welcome,
+    Goodbye,
+    OptionsMenu,
+    ArtifactKindMenu,
+    QueryMenu,
+    ArtifactData { artifact: Artifact },
+    ArtifactIds { data: Vec<u32> },
+    IDMustBeUniqueWarning,
+}
+
+impl SystemMsg {
+
+    fn display(&self) {
+        match self {
+            SystemMsg::Welcome => {
+                println!("Welcome to our library!");
+            },
+            SystemMsg::Goodbye => {
+                println!("Come back soon!");
+            },
+            SystemMsg::OptionsMenu => {
+                println!("0. Quit");
+                println!("1. List IDs");
+                println!("2. Add artifact");
+                println!("3. Remove artifact");
+                println!("4. Loan artifact");
+                println!("5. Return artifact");
+                println!("6. Query");
+            },
+            SystemMsg::ArtifactKindMenu => {
+                println!("0. Book");
+                println!("1. AudioBook");
+                println!("2. Statue");
+                println!("3. Painting");
+            },
+            SystemMsg::QueryMenu => {
+                println!("0. By ID");
+                println!("1. By title");
+                println!("2. By author");
+                println!("3. By kind");
+                println!("4. By keywords");
+            },
+            SystemMsg::ArtifactData { artifact } => {
+                println!("{:#?}", artifact);
+            },
+            SystemMsg::ArtifactIds { data } => {
+                println!("Registered IDs: {:?}", data);
+            },
+            SystemMsg::IDMustBeUniqueWarning => {
+                println!("Artifact ID must be unique!");
+            }
+            _ => {},
+        }
+    }
+
+}
+
+enum UserInput {
+    String,
+    Integer,
+    Float,
+}
+
+impl UserInput {
+
+    fn user_io(&self) -> Option<String> {
+        let mut input: String = String::new();
+        match io::stdin().read_line(&mut input) {
+            Ok(_) => Some(input.trim().to_string()),
+            Err(_) => None,
+        }
+    }
+
+    fn display(&self, flavor_text: Option<&str>) -> Option<UserValue> {
+        // NEW: Wrapping return type in an Enum allows for generics
+        // FIXME: handling flavor_text == None should skip print, not print an empty string
+        match self {
+            UserInput::String => {
+                println!("{}", flavor_text.unwrap_or(""));
+                match self.user_io() {
+                    Some(str) => Some(UserValue::String(str)),
+                    None => None,
+                }
+            },
+            UserInput::Integer => {
+                println!("{}", flavor_text.unwrap_or(""));
+                match self.user_io()?.parse::<u32>() {
+                    Ok(num) => Some(UserValue::Integer(num)),
+                    Err(_) => None,
+                }
+            },
+            UserInput::Float => {
+                println!("{}", flavor_text.unwrap_or(""));
+                match self.user_io()?.parse::<f32>() {
+                    Ok(num) => Some(UserValue::Float(num)),
+                    Err(_) => None,
+                }
+            },
+            _ => None,
+        }
+    }
+}
+
+
+fn main() {
+    let mut lib: Library = create_example_library();
+
+    SystemMsg::Welcome.display();
+    loop {
+        SystemMsg::OptionsMenu.display();
+        if let Some(option) = UserInput::Integer.display(None) {
+            match option {
+                UserValue::Integer { value: 0 } => break,
+                UserValue::Integer { value: 1 } => {
+                    SystemMsg::ArtifactIds { data: lib.list_ids() }.display();
+                },
+                UserValue::Integer  { value: 2 } => {
+                    // FIXME: keep prompting until ID is unique
+                    // FIXME: preprocess keywords (split by whitespace, lowercase)
+
+                    let id = UserInput::Integer.display(Some("Please, enter the ID: "));
+                    let title = UserInput::String.display(Some("Please, enter the title: "));
+                    let author = UserInput::String.display(Some("Please, enter the author: "));
+                    let keywords = UserInput::String.display(Some("Please, enter the keywords (whitespace separated): "));
+                    let kind = UserInput::
+
+                },
+                _ => (),
+            }
+        } else { continue }  // try again FIXME: add user warning for invalid input?
+    }
+    SystemMsg::Goodbye.display();
+}
 
 // static test code
 #[cfg(test)]
