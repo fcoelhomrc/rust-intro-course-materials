@@ -415,12 +415,6 @@ fn create_example_library() -> Library {
 }
 
 // CLI CODE
-enum UserValue {
-    String { value: String },
-    Integer { value: u32 },
-    Float { value: f32 },
-}
-
 
 enum SystemMsg {
     Welcome,
@@ -429,8 +423,9 @@ enum SystemMsg {
     ArtifactKindMenu,
     QueryMenu,
     ArtifactData { artifact: Artifact },
-    ArtifactIds { data: Vec<u32> },
+    ArtifactIDs { ids: Vec<u32> },
     IDMustBeUniqueWarning,
+    InvalidOptionWarning,
 }
 
 impl SystemMsg {
@@ -468,11 +463,14 @@ impl SystemMsg {
             SystemMsg::ArtifactData { artifact } => {
                 println!("{:#?}", artifact);
             },
-            SystemMsg::ArtifactIds { data } => {
+            SystemMsg::ArtifactIDs { ids: data } => {
                 println!("Registered IDs: {:?}", data);
             },
             SystemMsg::IDMustBeUniqueWarning => {
                 println!("Artifact ID must be unique!");
+            },
+            SystemMsg::InvalidOptionWarning => {
+                println!("Invalid option!");
             }
             _ => {},
         }
@@ -480,14 +478,38 @@ impl SystemMsg {
 
 }
 
+struct Converter {}
+impl Converter {
+    fn new() -> Self {
+        Self {}
+    }
+
+    fn integer(str: String) -> u32 {
+        match str.parse::<u32>() {
+            Ok(integer) => integer,
+            Err(_) => todo!(),
+        }
+    }
+
+    fn float(str: String) -> f32 {
+        match str.parse::<f32>() {
+            Ok(float) => float,
+            Err(_) => todo!(),
+        }
+    }
+}
+
+
 enum UserInput {
-    String,
-    Integer,
-    Float,
+    Simple { flavor_text: String },
+    Option,
+    ArtifactID { existing_ids: Vec<u32> },
+    ArtifactKind,
+    Artifact { existing_ids: Vec<u32> },
+    Query,
 }
 
 impl UserInput {
-
     fn user_io(&self) -> Option<String> {
         let mut input: String = String::new();
         match io::stdin().read_line(&mut input) {
@@ -496,32 +518,113 @@ impl UserInput {
         }
     }
 
-    fn display(&self, flavor_text: Option<&str>) -> Option<UserValue> {
-        // NEW: Wrapping return type in an Enum allows for generics
-        // FIXME: handling flavor_text == None should skip print, not print an empty string
+    fn ask(&self) -> Option<String> {
+
         match self {
-            UserInput::String => {
-                println!("{}", flavor_text.unwrap_or(""));
-                match self.user_io() {
-                    Some(str) => Some(UserValue::String(str)),
-                    None => None,
-                }
+            UserInput::Simple { flavor_text } => {
+                println!("{}", flavor_text);
+                self.user_io()
             },
-            UserInput::Integer => {
-                println!("{}", flavor_text.unwrap_or(""));
-                match self.user_io()?.parse::<u32>() {
-                    Ok(num) => Some(UserValue::Integer(num)),
-                    Err(_) => None,
-                }
+            UserInput::Option => {
+                SystemMsg::OptionsMenu.display();
+                let option = loop {
+                    let option = UserInput::Simple { flavor_text: ">>> ".to_string() }.ask().unwrap();  // FIXME: handle Option properly
+                    let option = option.parse::<u32>();
+                    if option.is_ok() {
+                        break option.unwrap();
+                    } else {
+                        SystemMsg::InvalidOptionWarning.display();
+                        continue;
+                    }
+                };
+                Some(option.to_string())
             },
-            UserInput::Float => {
-                println!("{}", flavor_text.unwrap_or(""));
-                match self.user_io()?.parse::<f32>() {
-                    Ok(num) => Some(UserValue::Float(num)),
-                    Err(_) => None,
-                }
+            UserInput::ArtifactID { existing_ids } => {
+                println!("Enter artifact ID: ");
+                let id = loop {
+                    let input = self.user_io().unwrap().parse::<u32>();  // FIXME: handle Option correctly
+                    match input {
+                        Ok(id) if existing_ids.contains(&id) => {
+                            SystemMsg::IDMustBeUniqueWarning.display();
+                            SystemMsg::ArtifactIDs { ids: existing_ids.clone() };
+                        },
+                        Ok(id) => {
+                            break id;
+                        }
+                        Err(_) => continue,
+                    }
+                };
+                Some(id.to_string())
             },
-            _ => None,
+            UserInput::ArtifactKind => {
+                SystemMsg::ArtifactKindMenu.display();
+                let option = UserInput::Option.ask();
+                let option = Converter::integer(option.unwrap());
+                let kind = match option {
+                    0 => {
+                        let pages = UserInput::Simple { flavor_text: "Enter pages: ".to_string() }.ask().unwrap();
+                        let pages = Converter::integer(pages);
+                        let isbn = UserInput::Simple { flavor_text: "Enter ISBN: ".to_string() }.ask().unwrap();
+                        ArtifactKind::Book { pages, isbn }
+                    },
+                    1 => {
+                        let duration_minutes = UserInput::Simple { flavor_text: "Enter duration_minutes: ".to_string() }.ask().unwrap();
+                        let duration_minutes = Converter::float(duration_minutes);
+                        let narrator = UserInput::Simple { flavor_text: "Enter narrator: ".to_string() }.ask().unwrap();
+                        ArtifactKind::AudioBook { duration_minutes, narrator }
+                    },
+                    2 => {
+                        let dimensions_cm = {
+                            let width = UserInput::Simple { flavor_text: "Enter width_cm: ".to_string() }.ask().unwrap();
+                            let width = Converter::float(width);
+                            let depth = UserInput::Simple { flavor_text: "Enter depth_cm: ".to_string() }.ask().unwrap();
+                            let depth = Converter::float(depth);
+                            (width, depth)
+                        };
+                        let height_cm = UserInput::Simple { flavor_text: "Enter height_cm: ".to_string() }.ask().unwrap();
+                        let height_cm = Converter::float(height_cm);
+                        let weight_kg = UserInput::Simple { flavor_text: "Enter weight_kg: ".to_string() }.ask().unwrap();
+                        let weight_kg = Converter::float(weight_kg);
+                        let material = UserInput::Simple { flavor_text: "Enter material: ".to_string() }.ask().unwrap();
+                        ArtifactKind::Statue { dimensions_cm, height_cm, weight_kg, material }
+                    },
+                    3 => {
+                        let dimensions_cm = {
+                            let width = UserInput::Simple { flavor_text: "Enter width_cm: ".to_string() }.ask().unwrap();
+                            let width = Converter::float(width);
+                            let depth = UserInput::Simple { flavor_text: "Enter depth_cm: ".to_string() }.ask().unwrap();
+                            let depth = Converter::float(depth);
+                            (width, depth)
+                        };
+                        let style = UserInput::Simple { flavor_text: "Enter style: ".to_string() }.ask().unwrap();
+                        let medium = UserInput::Simple { flavor_text: "Enter medium: ".to_string() }.ask().unwrap();
+                        ArtifactKind::Painting { dimensions_cm, style, medium }
+                    },
+                    _ => todo!(),
+                };
+
+                Some(String::from("Artifact Kind"))
+            },
+            UserInput::Artifact { existing_ids } => {
+                let id = UserInput::ArtifactID { existing_ids: existing_ids.clone() }.ask();
+                let title = UserInput::Simple { flavor_text: "Enter title: ".to_string() }.ask();
+                let author = UserInput::Simple { flavor_text: "Enter author: ".to_string() }.ask();
+                let keywords = UserInput::Simple { flavor_text: "Enter keywords (whitespace separated): ".to_string() }.ask();
+
+                let keywords = keywords?
+                    .to_lowercase()
+                    .split_whitespace()
+                    .map(|s| String::from(s))
+                    .collect::<Vec<String>>();
+
+                // TODO: artifact kind, variant-specific fields
+
+                title
+
+            }
+            UserInput::Query => {
+                todo!()
+            }
         }
     }
 }
@@ -532,27 +635,19 @@ fn main() {
 
     SystemMsg::Welcome.display();
     loop {
-        SystemMsg::OptionsMenu.display();
-        if let Some(option) = UserInput::Integer.display(None) {
-            match option {
-                UserValue::Integer { value: 0 } => break,
-                UserValue::Integer { value: 1 } => {
-                    SystemMsg::ArtifactIds { data: lib.list_ids() }.display();
-                },
-                UserValue::Integer  { value: 2 } => {
-                    // FIXME: keep prompting until ID is unique
-                    // FIXME: preprocess keywords (split by whitespace, lowercase)
+        let option = UserInput::Option.ask();
+        let option = Converter::integer( option.unwrap() );  // TODO: is unwrap safe?
+        match option {
+            0 => break,
+            1 => SystemMsg::ArtifactIDs { ids: lib.list_ids() }.display(),
+            2 => {
+                UserInput::Artifact { existing_ids: lib.list_ids() } .ask();
+            },
+            _ => SystemMsg::InvalidOptionWarning.display(),
+        }
 
-                    let id = UserInput::Integer.display(Some("Please, enter the ID: "));
-                    let title = UserInput::String.display(Some("Please, enter the title: "));
-                    let author = UserInput::String.display(Some("Please, enter the author: "));
-                    let keywords = UserInput::String.display(Some("Please, enter the keywords (whitespace separated): "));
-                    let kind = UserInput::
 
-                },
-                _ => (),
-            }
-        } else { continue }  // try again FIXME: add user warning for invalid input?
+
     }
     SystemMsg::Goodbye.display();
 }
