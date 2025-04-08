@@ -9,8 +9,6 @@ use std::collections::{HashMap, HashSet};
 
 /// Augmente a livraria feita anteriormente com estruturas de dados para eficientemente encontrar um livro pelo seu título ou ISBN e encontrar os livros escritos por um autor. Introduzir procura por palavras chave eficiente com a capacidade de fazer procura por interseção de palavras chave ou união de palavras chave.
 
-// FIXME:  WHEN I REMOVE BOOK I MESS UP THE INDICES!!!!
-
 // TODO: add data structures
 // TODO: find book by title
 // TODO: find book by ISBN
@@ -28,44 +26,26 @@ struct Book {
     author: String,
     keywords: Vec<String>,
     // auxiliary fields
-    is_available: bool,
+    id: usize,
+    units: usize,
 }
 
 impl Book {
-    fn new(isbn: &str, title: &str, author: &str, keywords: Vec<&str>) -> Self {
+    fn new(isbn: &str, title: &str, author: &str, keywords: Vec<&str>, id: usize) -> Self {
         Self {
             isbn: isbn.to_string(),
             title: title.to_string(),
             author: author.to_string(),
             keywords: keywords.iter().map(|s| s.to_string()).collect(),
-            is_available: true,
+            id,
+            units: 1,
         }
     }
 }
 
-// had to implement traits manually bc otherwise "is_available" would be
-// used for comparison... which is not what we want
-impl PartialEq for Book {
-    fn eq(&self, other: &Self) -> bool {
-        self.isbn == other.isbn
-            && self.title == other.title
-            && self.author == other.author
-            && self.keywords == other.keywords
-    }
-}
-
-impl Eq for Book {}
-
 #[derive(Debug)]
 struct Library {
-    books: Vec<Book>,
-
-    // HashMap -> + efficient to check key membership && key retrieval
-    //            - one hashmap per field (mem usage is approx. N times larger, N = num fields)
-    // HashSet -> + no dupes (book idx in Library.books is unique)
-    //            + efficient to check membership
-    //            + efficient to add/remove value
-    //            - inefficient to iterate
+    books: HashMap<usize, Book>,
     books_by_title: HashMap<String, HashSet<usize>>,
     books_by_isbn: HashMap<String, HashSet<usize>>,
     books_by_author: HashMap<String, HashSet<usize>>,
@@ -75,62 +55,51 @@ struct Library {
 impl Library {
     // V2.0 - constructor
     fn new(books: Vec<Book>) -> Self {
-        Self {
-            books,
+        let mut instance = Self {
+            books: HashMap::new(),
             books_by_title: HashMap::new(),
             books_by_isbn: HashMap::new(),
             books_by_author: HashMap::new(),
             books_by_keyword: HashMap::new(),
-        }
-    }
+        };
 
-    // FIXME:  not very elegant having to call this manually after instantiation...
-    //         but trying to use this inside Library::new is impossible due to borrow checker
-    //         (double mut borrow...)
-    //         Perhaps alternative is to copy paste the implementation of Library::update_hashmaps_on_add
-    //         into the Library::new, in an attempt to have one mut borrow end before the other...
-    //         but since this leads to code duplication, also not very elegant!
-    fn update_hashmaps_on_new(&mut self) {
-        let books_copy = self.books.clone();
-        for (idx, book) in books_copy.iter().enumerate() {
-            self.update_hashmaps_on_add(book, idx);
+        for book in books.iter() {
+            instance.add_book(book);
+            instance.update_hashmaps_on_add(book);
         }
+
+        instance
     }
 
     // auxiliary methods
-    fn find_book(&self, book: &Book) -> usize {
-        self.books
-            .iter()
-            .position(|x| x == book)
-            .expect("Could not find book")
+    fn list_ids(&self) -> Vec<&usize> {
+        self.books.keys().collect::<Vec<&usize>>()
     }
 
-    fn find_all_books(&self, book: &Book) -> Vec<usize> {
-        let indices = {
-            self.books
-                .iter()
-                .enumerate()
-                .filter(|(_, x)| **x == *book)
-                .map(|(i, _)| i)
-                .collect::<Vec<usize>>()
-        };
-        indices
+    fn has_book_id(&self, book_id: usize) -> bool {
+        self.books.contains_key(&book_id)
+    }
+
+    fn has_book(&self, book: &Book) -> bool {
+        self.books.contains_key(&book.id)
+    }
+
+    fn has_book_available(&self, book: &Book) -> bool {
+        if self.has_book(book) {
+            self.books.get(&book.id).unwrap().units > 0
+        } else {
+            false
+        }
     }
 
     // V2.0
-    // FIXME: finish this implementation
-    //        I think Library.books should stop being a vec
-    //        and instead it should be a HashMap too (usize, Book)
-    //        This way we can find_book_by_title -> index
-    //        then retrieve book efficiently Library.books[index]
     fn find_book_by_title(&self, title: &str) -> Book {
         let idx = self
             .books_by_title
             .get(title)
             .expect("Could not find book")
             .iter()
-            .next()
-            .copied();
+            .next();
 
         if let Some(idx) = idx {
             self.books[idx].clone()
@@ -148,8 +117,7 @@ impl Library {
             .get(isbn)
             .expect("Could not find book")
             .iter()
-            .next()
-            .copied();
+            .next();
 
         if let Some(idx) = idx {
             self.books[idx].clone()
@@ -159,7 +127,7 @@ impl Library {
     }
 
     // V2.0
-    fn find_all_books_by_author(&self, author: &str) -> Vec<Book> {
+    fn find_books_by_author(&self, author: &str) -> Vec<Book> {
         let indices = self
             .books_by_author
             .get(author)
@@ -167,7 +135,7 @@ impl Library {
 
         let mut books = Vec::<Book>::new();
         for idx in indices {
-            books.push(self.books[*idx].clone());
+            books.push(self.books[idx].clone());
         }
         books
     }
@@ -205,11 +173,11 @@ impl Library {
         }
 
         let mut processed_indices = HashSet::<usize>::new();
-        for (i, (kw, kw_idx)) in keywords
+        for (i, (_kw, kw_idx)) in keywords
             .into_iter()
             .zip(keyword_indices.into_iter())
-            .enumerate() {
-
+            .enumerate()
+        {
             if i > 0 {
                 match operators[i - 1] {
                     "AND" => {
@@ -217,13 +185,13 @@ impl Library {
                             .intersection(kw_idx)
                             .copied()
                             .collect::<HashSet<_>>();
-                    },
+                    }
                     "OR" => {
                         processed_indices = processed_indices
                             .union(kw_idx)
                             .copied()
                             .collect::<HashSet<_>>();
-                    },
+                    }
                     _ => panic!["Found non-valid operator in query!"],
                 }
             } else {
@@ -231,75 +199,90 @@ impl Library {
             }
         }
 
-
         let mut books = Vec::<Book>::new();
         for idx in processed_indices {
-            books.push(self.books[idx].clone());
+            books.push(self.books[&idx].clone());
         }
         books
     }
 
     // required methods
     fn add_book(&mut self, book: &Book) {
-        self.books.push(book.clone()); // clone just to make testing less annoying
-
-        let idx = self.books.len() - 1;
-        self.update_hashmaps_on_add(book, idx);
+        if self.has_book(book) {
+            if let Some(item) = self.books.get_mut(&book.id) {
+                item.units += book.units;
+            }
+        } else {
+            self.books.insert(book.id, book.clone());
+            self.update_hashmaps_on_add(book);
+        }
     }
 
-    fn update_hashmaps_on_add(&mut self, book: &Book, idx: usize) {
+    fn update_hashmaps_on_add(&mut self, book: &Book) {
         // update HashMaps
         if self.books_by_title.contains_key(&book.title) {
             self.books_by_title
                 .get_mut(&book.title)
                 .unwrap()
-                .insert(idx);
+                .insert(book.id);
         } else {
             self.books_by_title
                 .insert(book.title.clone(), HashSet::new());
             self.books_by_title
                 .get_mut(&book.title)
                 .unwrap()
-                .insert(idx);
+                .insert(book.id);
         }
 
         if self.books_by_isbn.contains_key(&book.isbn) {
-            self.books_by_isbn.get_mut(&book.isbn).unwrap().insert(idx);
+            self.books_by_isbn
+                .get_mut(&book.isbn)
+                .unwrap()
+                .insert(book.id);
         } else {
             self.books_by_isbn.insert(book.isbn.clone(), HashSet::new());
-            self.books_by_isbn.get_mut(&book.isbn).unwrap().insert(idx);
+            self.books_by_isbn
+                .get_mut(&book.isbn)
+                .unwrap()
+                .insert(book.id);
         }
 
         if self.books_by_author.contains_key(&book.author) {
             self.books_by_author
                 .get_mut(&book.author)
                 .unwrap()
-                .insert(idx);
+                .insert(book.id);
         } else {
             self.books_by_author
                 .insert(book.author.clone(), HashSet::new());
             self.books_by_author
                 .get_mut(&book.author)
                 .unwrap()
-                .insert(idx);
+                .insert(book.id);
         }
 
         for keyword in book.keywords.iter() {
             if self.books_by_keyword.contains_key(keyword) {
-                self.books_by_keyword.get_mut(keyword).unwrap().insert(idx);
+                self.books_by_keyword
+                    .get_mut(keyword)
+                    .unwrap()
+                    .insert(book.id);
             } else {
                 self.books_by_keyword
                     .insert(keyword.to_string().clone(), HashSet::new());
-                self.books_by_keyword.get_mut(keyword).unwrap().insert(idx);
+                self.books_by_keyword
+                    .get_mut(keyword)
+                    .unwrap()
+                    .insert(book.id);
             }
         }
     }
 
     fn remove_book(&mut self, book: &Book) {
-        let idx = self.find_book(book);
-        self.books.remove(idx);
-
-        self.update_hashmaps_on_remove(book, idx);
+        if self.has_book(book) {
+            self.books.remove(&book.id);
+        }
+        self.update_hashmaps_on_remove(book);
         self.cleanup_on_remove();
     }
 
@@ -308,36 +291,43 @@ impl Library {
     //        when their HashSets are empty
     //        + memory cleanup
     //        - inefficient to iterate over HashMap
-    fn update_hashmaps_on_remove(&mut self, book: &Book, idx: usize) {
+    fn update_hashmaps_on_remove(&mut self, book: &Book) {
         // update HashMaps
         if self.books_by_title.contains_key(&book.title) {
             self.books_by_title
                 .get_mut(&book.title)
                 .unwrap()
-                .remove(&idx);
+                .remove(&book.id);
         }
 
         if self.books_by_isbn.contains_key(&book.isbn) {
-            self.books_by_isbn.get_mut(&book.isbn).unwrap().remove(&idx);
+            self.books_by_isbn
+                .get_mut(&book.isbn)
+                .unwrap()
+                .remove(&book.id);
         }
 
         if self.books_by_author.contains_key(&book.author) {
             self.books_by_author
                 .get_mut(&book.author)
                 .unwrap()
-                .remove(&idx);
+                .remove(&book.id);
         }
 
         for keyword in book.keywords.iter() {
             if self.books_by_keyword.contains_key(keyword) {
-                self.books_by_keyword.get_mut(keyword).unwrap().remove(&idx);
+                self.books_by_keyword
+                    .get_mut(keyword)
+                    .unwrap()
+                    .remove(&book.id);
             }
         }
     }
 
     fn cleanup_on_remove(&mut self) {
+        // e.g. empty HashSets in the auxiliary fields
         // temporary list of mutable borrows of each HashMap
-        let mut hashmaps = vec![
+        let hashmaps = vec![
             &mut self.books_by_title,
             &mut self.books_by_isbn,
             &mut self.books_by_author,
@@ -350,7 +340,7 @@ impl Library {
             // IMMUTABLE STEP
             let to_clean = hashmap // finds empty HashSets
                 .iter()
-                .filter(|(k, v)| v.is_empty())
+                .filter(|(_k, v)| v.is_empty())
                 .map(|(k, _)| k.clone())
                 .collect::<Vec<_>>();
 
@@ -363,31 +353,23 @@ impl Library {
     }
 
     fn give_book(&mut self, book: &Book) {
-        let indices = self.find_all_books(book);
-        let mut success = false;
-        for i in indices {
-            if self.books[i].is_available {
-                self.books[i].is_available = false;
-                success = true;
-                break;
-            } else {
-                continue;
+        if self.has_book_available(book) {
+            if let Some(item) = self.books.get_mut(&book.id) {
+                item.units -= 1;
             }
-        }
-        if !success {
-            panic!("No books available!");
+        } else {
+            panic!("No book available! Library will now self destruct...")
         }
     }
 
     fn receive_book(&mut self, book: &Book) {
-        let indices = self.find_all_books(book);
-        let mut success = false;
-        for i in indices {
-            if !self.books[i].is_available {
-                self.books[i].is_available = true;
-                success = true;
-                break;
+        if self.has_book(book) {
+            if let Some(item) = self.books.get_mut(&book.id) {
+                item.units += 1;
             }
+        } else {
+            // book was not registered, but will be
+            self.add_book(book);
         }
     }
 }
@@ -398,6 +380,7 @@ fn create_examples() -> (Book, Book, Book, Book) {
         "The Rust Programming Language",
         "Steve Klabnik",
         vec!["rust", "programming", "systems"],
+        100,
     );
 
     let book2 = Book::new(
@@ -405,6 +388,7 @@ fn create_examples() -> (Book, Book, Book, Book) {
         "The C Programming Language",
         "Brian W. Kernighan",
         vec!["c", "programming", "classic"],
+        200,
     );
 
     let book3 = Book::new(
@@ -412,6 +396,7 @@ fn create_examples() -> (Book, Book, Book, Book) {
         "Automate the Boring Stuff with Python",
         "Al Sweigart",
         vec!["python", "automation", "beginner"],
+        300,
     );
 
     let book4 = Book::new(
@@ -419,6 +404,7 @@ fn create_examples() -> (Book, Book, Book, Book) {
         "The Go Programming Language",
         "Brian W. Kernighan",
         vec!["go", "programming", "concurrency", "goroutines", "channels"],
+        201,
     );
 
     (book1, book2, book3, book4)
@@ -426,7 +412,7 @@ fn create_examples() -> (Book, Book, Book, Book) {
 
 // cli stuff
 fn option_menu() {
-    println!("0: quit");
+    println!("0: list IDs");
     println!("1: create new Book entry");
     println!("2: delete an existing Book entry");
     println!("3: request a Book");
@@ -436,6 +422,7 @@ fn option_menu() {
     println!("7: search Book by author");
     println!("8: search Book by keyword");
     println!("9: consult Library");
+    println!("_: quit");
 }
 
 fn option_input() -> u32 {
@@ -451,7 +438,28 @@ fn string_input() -> String {
     input.trim().to_string()
 }
 
-fn book_input() -> Book {
+fn integer_input() -> usize {
+    let input = string_input();
+    input.parse::<usize>().unwrap()
+}
+
+fn unique_id_input(lib: Option<&Library>) -> usize {
+    // If you call this method with a reference to the lib,
+    // you are prompted repeatedly until you enter an ID which is not present in the lib
+    println!("Please enter an id: ");
+    let id = integer_input();
+    if let Some(lib) = lib {
+        if lib.has_book_id(id) {
+            println!("ID already registered!");
+            println!("Registered IDs: {:#?}", lib.list_ids());
+            unique_id_input(Some(lib));
+        }
+    }
+    id
+}
+
+fn book_input(lib: Option<&Library>) -> Book {
+    let id = unique_id_input(lib);
     println!("Please enter your book ISBN code: ");
     let isbn = string_input();
     println!("Please enter your book title: ");
@@ -461,14 +469,12 @@ fn book_input() -> Book {
     println!("Please enter its keywords (whitespace separated): ");
     let keywords = string_input();
     let keywords: Vec<&str> = keywords.split_whitespace().collect();
-
-    Book::new(&isbn, &title, &author, keywords)
+    Book::new(&isbn, &title, &author, keywords, id)
 }
 
 fn main() {
     let (book1, book2, book3, book4) = create_examples();
     let mut lib = Library::new(vec![book1, book2, book3, book4]);
-    lib.update_hashmaps_on_new();
 
     loop {
         println!("Choose an option:");
@@ -476,20 +482,21 @@ fn main() {
         let option = option_input();
 
         match option {
+            0 => println!("Registered IDs: {:#?}", lib.list_ids()),
             1 => {
-                let book = book_input();
+                let book = book_input(Some(&lib));
                 lib.add_book(&book)
             }
             2 => {
-                let book = book_input();
+                let book = book_input(None);
                 lib.remove_book(&book)
             }
             3 => {
-                let book = book_input();
+                let book = book_input(None);
                 lib.give_book(&book)
             }
             4 => {
-                let book = book_input();
+                let book = book_input(None);
                 lib.receive_book(&book)
             }
             5 => {
@@ -507,7 +514,7 @@ fn main() {
             7 => {
                 println!("Input author:");
                 let key = string_input();
-                let books = lib.find_all_books_by_author(key.as_str());
+                let books = lib.find_books_by_author(key.as_str());
                 println!("Search result: ");
                 for book in books {
                     println!("{:#?}", book);
@@ -541,7 +548,7 @@ mod test {
         println!("Book 4: {} by {}", book4.title, book4.author);
 
         let mut lib = super::Library::new(vec![book1.clone(), book2.clone(), book4.clone()]);
-        lib.update_hashmaps_on_new();
+
         println!("--> Library::new()");
         println!("{:#?}", lib);
         println!("#################################");
@@ -566,6 +573,11 @@ mod test {
         println!("{:#?}", lib);
         println!("#################################");
 
+        lib.receive_book(&book1);
+        println!("--> Library::receive_book()");
+        println!("{:#?}", lib);
+        println!("#################################");
+
         let temp = lib.find_book_by_title("The Rust Programming Language");
         println!("--> Library::find_book_by_title()");
         println!("{:#?}", temp);
@@ -576,36 +588,29 @@ mod test {
         println!("{:#?}", temp);
         println!("#################################");
 
-        let temp = lib.find_all_books_by_author("Brian W. Kernighan");
+        let temp = lib.find_books_by_author("Brian W. Kernighan");
         println!("--> Library::find_all_books_by_author(()");
         println!("{:#?}", temp);
         println!("#################################");
-
-
-        let temp = lib.find_books_by_keyword("c OR go");
-        println!("--> Library::find_books_by_keyword(()");
-        println!("{:#?}", temp);
-        println!("#################################");
-
 
         let temp = lib.find_books_by_keyword("programming");
         println!("--> Library::find_books_by_keyword(()");
         println!("{:#?}", temp);
         println!("#################################");
 
-
         let temp = lib.find_books_by_keyword("programming AND go");
         println!("--> Library::find_books_by_keyword(()");
         println!("{:#?}", temp);
         println!("#################################");
 
+        let temp = lib.find_books_by_keyword("c OR go");
+        println!("--> Library::find_books_by_keyword(()");
+        println!("{:#?}", temp);
+        println!("#################################");
 
         let temp = lib.find_books_by_keyword("go OR rust AND programming");
         println!("--> Library::find_books_by_keyword(()");
         println!("{:#?}", temp);
         println!("#################################");
-
-
-
     }
 }
