@@ -683,7 +683,7 @@ impl SystemMsg {
     }
 }
 
-// TODO: Converter needs guards against parsing stuff!
+// TODO: Converter needs guards against parsing stuff! ✅ DONE
 struct Converter {}
 impl Converter {
     fn integer(str: String) -> Option<u32> {
@@ -1250,7 +1250,6 @@ mod test {
         assert!(lib.has_available_artifact(1, 1));
 
         // Statue -> cannot lend
-        println!("LOOK AT MY BALLSSSS {}", lib.has_available_artifact(3, 1));
         assert!(!lib.can_lend(3));
         assert!(lib.has_available_artifact(3, 1)); // cannot lend BUT there are units
 
