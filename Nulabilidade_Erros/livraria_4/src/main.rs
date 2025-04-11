@@ -21,10 +21,20 @@ use std::io;
 enum LibraryError {
     #[error("Field {0} not available for Artifact of type {1}")]
     FieldNotAvailable(String, String),
+    #[error("Id {0} is not registered in the library")]
+    IdNotAvailable(u32, Vec<u32>),
+    #[error("Id {0} is already registered in the library")]
+    DuplicatedId(u32, Vec<u32>),
     #[error("Malformed query. Found {0} keywords and {1} operators. Hint: make sure each keyword is separated by an operator!")]
     MalformedQuery(usize, usize),
-    #[error("Query contains operator {0}, which is invalid. Hint: AND / OR are the valid operators.")]
+    #[error(
+        "Query contains operator {0}, which is invalid. Hint: AND / OR are the valid operators."
+    )]
     UnknownOperator(String),
+    #[error("Not enough units available! Requested {0}, available {1}.")]
+    NotEnoughUnitsAvailable(u32, u32),
+    #[error("Artifact type cannot be loaned")]
+    CannotLoan(ArtifactKindName),
 }
 
 // TYPES
@@ -48,7 +58,6 @@ impl std::fmt::Display for ArtifactKindName {
         }
     }
 }
-
 
 #[derive(Debug, Clone)]
 enum ArtifactKind {
@@ -125,7 +134,7 @@ struct Library {
 }
 
 impl Library {
-    fn new(artifacts: Vec<Artifact>) -> Self {
+    fn new(artifacts: Vec<Artifact>) -> Result<Library, LibraryError> {
         let mut instance = Self {
             artifacts: HashMap::<u32, Artifact>::new(),
             artifacts_by_title: HashMap::<String, HashSet<u32>>::new(),
@@ -134,9 +143,16 @@ impl Library {
             artifacts_by_kind: HashMap::<ArtifactKindName, HashSet<u32>>::new(),
         };
         for artifact in artifacts {
-            instance.add_artifact(artifact); // updates reverse maps automatically
+            // updates reverse maps automatically
+            match instance.add_artifact(artifact) {
+                Ok(_) => {}
+                Err(LibraryError::DuplicatedId(_, _)) => {
+                    continue; // skip if duplicated
+                }
+                _ => panic!(),
+            }
         }
-        instance
+        Ok(instance)
     }
 
     // GETTERS
@@ -195,20 +211,16 @@ impl Library {
 
     fn get_height_cm(&self, artifact: &Artifact) -> Result<f32, LibraryError> {
         match &artifact.kind {
-            ArtifactKind::Statue {
-                height_cm, ..
-            } => Ok(*height_cm),
+            ArtifactKind::Statue { height_cm, .. } => Ok(*height_cm),
             other => Err(LibraryError::FieldNotAvailable(
                 "height_cm".to_string(),
                 other.name().to_string(),
             )),
         }
     }
-    fn get_weight_kg(&self, artifact: &Artifact)  -> Result<f32, LibraryError> {
+    fn get_weight_kg(&self, artifact: &Artifact) -> Result<f32, LibraryError> {
         match &artifact.kind {
-            ArtifactKind::Statue {
-                weight_kg, ..
-            } => Ok(*weight_kg),
+            ArtifactKind::Statue { weight_kg, .. } => Ok(*weight_kg),
             other => Err(LibraryError::FieldNotAvailable(
                 "weight_kg".to_string(),
                 other.name().to_string(),
@@ -254,10 +266,12 @@ impl Library {
     }
 
     fn has_available_artifact(&self, id: u32, units: u32) -> bool {
+        // FIXME: handle Option properly ✅ Done
+        // FIXME: available here means enough units, not if you can or cannot loan!
+
         if self.has_artifact(id) {
-            // FIXME: handle Option properly ✅ Done
             self.artifacts.get(&id).map_or(false, |artifact| {
-                artifact.units >= units  // check if
+                artifact.units >= units // check if
             })
         } else {
             false
@@ -267,12 +281,12 @@ impl Library {
     fn can_lend(&self, id: u32) -> bool {
         // FIXME: handle Option properly ✅ Done
         // NEW: if id not present, short-circuit to false
-        self.artifacts.get(&id).map_or(false, |artifact| {
-            match &artifact.kind {
+        self.artifacts
+            .get(&id)
+            .map_or(false, |artifact| match &artifact.kind {
                 ArtifactKind::Book { .. } | ArtifactKind::AudioBook { .. } => true,
                 ArtifactKind::Statue { .. } | ArtifactKind::Painting { .. } => false,
-            }
-        })
+            })
     }
 
     // QUERYING METHODS
@@ -301,12 +315,12 @@ impl Library {
 
         //
         if operators.is_empty() && keywords.is_empty() {
-            return Ok(None);  // Empty query -> Nothing to see
+            return Ok(None); // Empty query -> Nothing to see
         }
         if operators.len() != keywords.len() - 1 {
-            return Err(
-                LibraryError::MalformedQuery(
-                keywords.len(), operators.len()
+            return Err(LibraryError::MalformedQuery(
+                keywords.len(),
+                operators.len(),
             )); // Malformed query -> Error!
         }
 
@@ -332,10 +346,10 @@ impl Library {
                 match op {
                     "AND" => acc.retain(|x| ids.contains(x)),
                     "OR" => acc.extend(ids.iter()),
-                    _ => {  return Err(LibraryError::UnknownOperator(op.to_string())) }, // FIXME: this should be an Error?
+                    _ => return Err(LibraryError::UnknownOperator(op.to_string())), // FIXME: this should be an Error?
                 }
                 Ok(acc)
-            })?;  // if we get an error, try_fold short-circuits and return the error
+            })?; // if we get an error, try_fold short-circuits and return the error
         Ok(Some(acc))
     }
 
@@ -351,28 +365,21 @@ impl Library {
         None
     }
 
-    fn add_artifact(&mut self, artifact: Artifact) {
+    fn add_artifact(&mut self, artifact: Artifact) -> Result<(), LibraryError> {
         if self.has_artifact(artifact.id) {
-            todo!() // TODO: handle adding Artifact.id that already exists (increase units?)
+            Err(LibraryError::DuplicatedId(artifact.id, self.list_ids()))
         } else {
             self.update_reverse_maps_on_add(&artifact);
             self.artifacts.insert(artifact.id, artifact);
+            Ok(())
         }
     }
 
     fn update_reverse_maps_on_add(&mut self, artifact: &Artifact) {
         // shared
-
         self.update_shared_reverse_maps_on_add(artifact);
 
         // variant-specific
-        // TODO: finish this implementation
-        match &artifact.kind {
-            ArtifactKind::Book { .. } => {}      // isbn, pages
-            ArtifactKind::AudioBook { .. } => {} // duration, narrator
-            ArtifactKind::Statue { .. } => {}    // dimensions, weight, material
-            ArtifactKind::Painting { .. } => {}  // dimensions, style
-        }
     }
 
     fn update_shared_reverse_maps_on_add(&mut self, artifact: &Artifact) {
@@ -380,6 +387,10 @@ impl Library {
         // TODO: handle Errors properly (no unwraps!)
         // NEW: HashMap.insert returns a bool! true = newly inserted, false = already present
         // NEW: .for_each + scope to discard the bools returned by HashMap.insert
+
+        // We don't have ID access errors here, because in those cases we add a new HashSet
+        // For now, no further error handling is required and the function is left as is.
+
         if let Some(reverse_map) = self.artifacts_by_title.get_mut(&artifact.title) {
             reverse_map.insert(artifact.id);
         } else {
@@ -412,45 +423,64 @@ impl Library {
         } else {
             let mut new = HashSet::new();
             new.insert(artifact.id);
-            self.artifacts_by_kind
-                .insert(artifact.kind.name().clone(), new);
+            self.artifacts_by_kind.insert(artifact.kind.name(), new);
         }
     }
 
-    fn increment_artifact_units(&mut self, id: u32, units: u32) {
-        // FIXME: handle Option
-        // FIXME: handle integer overflow
-        self.artifacts.get_mut(&id).unwrap().units += units
+    fn increment_artifact_units(&mut self, id: u32, units: u32) -> Result<(), LibraryError> {
+        match self.artifacts.get_mut(&id) {
+            Some(artifact) => artifact.units += units,
+            None => return Err(LibraryError::IdNotAvailable(id, self.list_ids())),
+        }
+        Ok(())
     }
 
-    fn decrement_artifact_units(&mut self, id: u32, units: u32) {
-        // FIXME: handle Option
-        // FIXME: handle Error: units must be non-negative
-        self.artifacts.get_mut(&id).unwrap().units -= units
+    fn decrement_artifact_units(&mut self, id: u32, units: u32) -> Result<(), LibraryError> {
+        match self.artifacts.get_mut(&id) {
+            Some(artifact) => artifact.units -= units,
+            None => return Err(LibraryError::IdNotAvailable(id, self.list_ids())),
+        }
+        Ok(())
     }
 
-    fn remove_artifact(&mut self, id: u32) {
+    fn remove_artifact(&mut self, id: u32) -> Result<(), LibraryError> {
         if self.has_artifact(id) {
-            self.update_reverse_maps_on_remove(id);
+            self.update_reverse_maps_on_remove(id)?;
             self.artifacts.remove(&id);
-            // FIXME: handle Error: artifact not found
+            Ok(())
+        } else {
+            Err(LibraryError::IdNotAvailable(id, self.list_ids()))
         }
     }
 
-    fn update_reverse_maps_on_remove(&mut self, id: u32) {
+    fn update_reverse_maps_on_remove(&mut self, id: u32) -> Result<(), LibraryError> {
         // TODO: update Artifact variant inverse map (to be added)
-        // TODO: handle Errors properly (no unwraps!)
         // shared
-        self.update_shared_reverse_maps_on_remove(id);
+        self.update_shared_reverse_maps_on_remove(id)?;
 
         // variant-specific
 
         // clean up empty HashSets
         self.cleanup_reverse_maps();
+
+        Ok(())
     }
 
-    fn update_shared_reverse_maps_on_remove(&mut self, id: u32) {
-        let artifact = self.artifacts.get_mut(&id).unwrap(); // FIXME: unwrap is safe?
+    fn update_shared_reverse_maps_on_remove(&mut self, id: u32) -> Result<(), LibraryError> {
+        // let artifact = self.artifacts.get_mut(&id).unwrap(); // FIXME: unwrap is safe?
+        let artifact = self.artifacts.get_mut(&id);
+
+        if artifact.is_none() {
+            return Err(LibraryError::IdNotAvailable(id, self.list_ids()));
+        }
+        let artifact = artifact.unwrap(); // safe!
+
+        // If these unwraps fail, we are in an irrecoverable state
+        // We have a contract that reverse maps are kept updated whenever we add/remove items
+        // through the appropriate method.
+        // If this contract is broken, we assume an item was incorrectly added/removed by directly
+        // modifying the struct, which is forbidden
+
         self.artifacts_by_title
             .get_mut(&artifact.title)
             .unwrap()
@@ -469,6 +499,8 @@ impl Library {
             .get_mut(&artifact.kind.name())
             .unwrap()
             .remove(&artifact.id);
+
+        Ok(())
     }
 
     fn cleanup_reverse_maps(&mut self) {
@@ -484,20 +516,41 @@ impl Library {
         }
     }
 
-    fn lend_artifact(&mut self, id: u32, units: u32) {
-        if self.has_available_artifact(id, units) && self.can_lend(id) {
-            self.decrement_artifact_units(id, units);
-        } // TODO: handle Error: artifact not found / not enough units available / cannot lend
+    fn lend_artifact(&mut self, id: u32, units: u32) -> Result<(), LibraryError> {
+        if !self.has_artifact(id) {
+            return Err(LibraryError::IdNotAvailable(id, self.list_ids()));
+        }
+        if !self.can_lend(id) {
+            return Err(LibraryError::CannotLoan(
+                self.get_artifact_clone_by_id(id).unwrap().kind.name(),
+            ));
+        }
+        if !self.has_available_artifact(id, units) {
+            return Err(LibraryError::NotEnoughUnitsAvailable(
+                units,
+                self.get_artifact_clone_by_id(id).unwrap().units,
+            ));
+        }
+
+        self.decrement_artifact_units(id, units)?;
+        Ok(())
     }
 
-    fn return_artifact(&mut self, id: u32, units: u32) {
-        if self.has_artifact(id) && self.can_lend(id) {
-            self.increment_artifact_units(id, units);
-        } // TODO: handle Error: artifact not found / cannot lend (or return)
+    fn return_artifact(&mut self, id: u32, units: u32) -> Result<(), LibraryError> {
+        if !self.has_artifact(id) {
+            return Err(LibraryError::IdNotAvailable(id, self.list_ids()));
+        }
+        if !self.can_lend(id) {
+            return Err(LibraryError::CannotLoan(
+                self.get_artifact_clone_by_id(id).unwrap().kind.name(),
+            ));
+        }
+        self.increment_artifact_units(id, units)?;
+        Ok(())
     }
 }
 
-// testing code
+// FIXTURES FOR TESTING (CLI + UNIT TESTS)
 fn create_example_library() -> Library {
     let artifacts = vec![
         Artifact::new(
@@ -549,7 +602,7 @@ fn create_example_library() -> Library {
         ),
     ];
 
-    Library::new(artifacts)
+    Library::new(artifacts).expect("Example library is hardcoded, so all IDs must be unique!")
 }
 
 // CLI CODE
@@ -564,6 +617,8 @@ enum SystemMsg {
     IDMustBeUniqueWarning,
     InvalidOptionWarning,
     NoMatchesFoundWarning,
+    InvalidIDWarning { id: u32, ids: Vec<u32> },
+    InvalidArtifactKindWarning { name: ArtifactKindName },
 }
 
 impl SystemMsg {
@@ -611,6 +666,12 @@ impl SystemMsg {
             }
             SystemMsg::NoMatchesFoundWarning => {
                 println!("No matches found!");
+            }
+            SystemMsg::InvalidIDWarning { id, ids } => {
+                println!("Invalid ID provided {}. Registered IDs: {:?}", id, ids);
+            }
+            SystemMsg::InvalidArtifactKindWarning { name } => {
+                println!("Artifact of type {} cannot be loaned", name);
             }
         }
     }
@@ -688,7 +749,7 @@ fn main() {
                 let keywords = keywords
                     .to_lowercase()
                     .split_whitespace()
-                    .map(|s| String::from(s))
+                    .map(String::from)
                     .collect::<Vec<_>>();
                 SystemMsg::ArtifactKindMenu.display();
                 let kind = UserInput::ask(Some("Select an option: "));
@@ -784,27 +845,60 @@ fn main() {
                         artifact: artifact.clone(),
                     }
                     .display();
-                    lib.add_artifact(artifact);
+                    match lib.add_artifact(artifact) {
+                        Ok(_) => continue,
+                        Err(error @ LibraryError::DuplicatedId(_, _)) => {
+                            println!("{error}")
+                        }
+                        _ => panic!(),
+                    }
                 }
             }
             3 => {
                 let id = UserInput::ask(Some("Enter ID: "));
                 let id = Converter::integer(id.unwrap()); // TODO: is unwrap safe?
-                lib.remove_artifact(id);
+                match lib.remove_artifact(id) {
+                    Ok(_) => continue,
+                    Err(LibraryError::IdNotAvailable(id, ids)) => {
+                        SystemMsg::InvalidIDWarning { id, ids }.display();
+                    }
+                    _ => panic!(), // irrecoverable
+                }
             }
             4 => {
                 let id = UserInput::ask(Some("Enter ID: "));
                 let id = Converter::integer(id.unwrap()); // TODO: is unwrap safe?
                 let units = UserInput::ask(Some("Enter units: "));
                 let units = Converter::integer(units.unwrap());
-                lib.lend_artifact(id, units);
+                match lib.lend_artifact(id, units) {
+                    Ok(_) => continue,
+                    Err(LibraryError::IdNotAvailable(id, ids)) => {
+                        SystemMsg::InvalidIDWarning { id, ids }.display();
+                    }
+                    Err(LibraryError::CannotLoan(name)) => {
+                        SystemMsg::InvalidArtifactKindWarning { name }.display();
+                    }
+                    Err(error @ LibraryError::NotEnoughUnitsAvailable(_, _)) => {
+                        println!("{error}");
+                    }
+                    _ => panic!(), // irrecoverable
+                }
             }
             5 => {
                 let id = UserInput::ask(Some("Enter ID: "));
                 let id = Converter::integer(id.unwrap()); // TODO: is unwrap safe?
                 let units = UserInput::ask(Some("Enter units: "));
                 let units = Converter::integer(units.unwrap());
-                lib.return_artifact(id, units);
+                match lib.return_artifact(id, units) {
+                    Ok(_) => continue,
+                    Err(LibraryError::IdNotAvailable(id, ids)) => {
+                        SystemMsg::InvalidIDWarning { id, ids }.display();
+                    }
+                    Err(LibraryError::CannotLoan(name)) => {
+                        SystemMsg::InvalidArtifactKindWarning { name }.display();
+                    }
+                    _ => panic!(), // irrecoverable
+                }
             }
             6 => {
                 SystemMsg::QueryMenu.display();
@@ -840,7 +934,7 @@ fn main() {
                                 SystemMsg::ArtifactData {
                                     artifact: lib.get_artifact_clone_by_id(id).unwrap(),
                                 }
-                                    .display();
+                                .display();
                             })
                         } else {
                             SystemMsg::NoMatchesFoundWarning.display();
@@ -870,7 +964,7 @@ fn main() {
                                     SystemMsg::ArtifactData {
                                         artifact: lib.get_artifact_clone_by_id(id).unwrap(),
                                     }
-                                        .display();
+                                    .display();
                                 })
                             } else {
                                 SystemMsg::NoMatchesFoundWarning.display();
@@ -890,7 +984,7 @@ fn main() {
                                 SystemMsg::ArtifactData {
                                     artifact: lib.get_artifact_clone_by_id(id).unwrap(),
                                 }
-                                    .display();
+                                .display();
                             })
                         } else {
                             SystemMsg::NoMatchesFoundWarning.display();
@@ -928,14 +1022,18 @@ mod test {
                 pages: 420,
                 isbn: "9780201109504".to_string(),
             },
-        ));
+        ))
+        .unwrap();
 
         assert!(lib.has_artifact(5));
         assert_eq!(lib.list_ids().len(), 5);
         println!(">>>> [ADD BOOK] <<<<");
         println!("{:#?}", lib);
 
-        lib.remove_artifact(5);
+        match lib.remove_artifact(5) {
+            Ok(_) => {}
+            Err(_) => panic!(),
+        }
 
         assert_eq!(lib.list_ids().len(), 4);
         println!(">>>> [REMOVE BOOK] <<<<");
@@ -947,20 +1045,31 @@ mod test {
         let mut lib: Library = create_example_library();
 
         // Book -> units = 2 -> units = 1
-        lib.lend_artifact(1, 1);
+        match lib.lend_artifact(1, 1) {
+            Ok(_) => {}
+            Err(_) => panic!(),
+        }
         assert!(lib.has_available_artifact(1, 1));
 
         // Book -> units = 1 -> units = 0
-        lib.lend_artifact(1, 1);
-        assert!(!lib.has_available_artifact(1, 1));  // false => unavailable 
+        match lib.lend_artifact(1, 1) {
+            Ok(_) => {}
+            Err(_) => panic!(),
+        }
+        assert!(!lib.has_available_artifact(1, 1)); // false => unavailable
 
         // Book -> units = 0 -> units = 1
-        lib.return_artifact(1, 1);
+        match lib.return_artifact(1, 1) {
+            Ok(_) => {}
+            Err(_) => panic!(),
+        }
         assert!(lib.has_available_artifact(1, 1));
 
         // Statue -> cannot lend
-        lib.lend_artifact(3, 1);
-        assert!(lib.has_available_artifact(3, 1));
+        println!("LOOK AT MY BALLSSSS {}", lib.has_available_artifact(3, 1));
+        assert!(!lib.can_lend(3));
+        assert!(lib.has_available_artifact(3, 1));   // cannot lend BUT there are units
+        
 
         println!(">>>> [CHECK UNITS] <<<<");
         println!("{:#?}", lib);
@@ -998,7 +1107,8 @@ mod test {
                 duration_minutes: 90.0,
                 narrator: "Joe".to_string(),
             },
-        ));
+        ))
+        .unwrap();
 
         let found_id = lib.find_artifact_by_author("Steve Klabnik");
         assert!(found_id.is_some());
@@ -1027,7 +1137,8 @@ mod test {
                 pages: 1000,
                 isbn: "9780201109504".to_string(),
             },
-        ));
+        ))
+        .unwrap();
 
         lib.add_artifact(Artifact::new(
             6,
@@ -1039,7 +1150,8 @@ mod test {
                 pages: 1000,
                 isbn: "9780201109504".to_string(),
             },
-        ));
+        ))
+        .unwrap();
 
         // case 1: _
         // NEW: HashMap.drain clears the set, returning all elements as iterator
@@ -1100,15 +1212,17 @@ mod test {
         let lib: Library = create_example_library();
 
         // Clippy: vec! -> useless, use array instead
-        for name in [ArtifactKindName::Book,
+        for name in [
+            ArtifactKindName::Book,
             ArtifactKindName::AudioBook,
             ArtifactKindName::Statue,
-            ArtifactKindName::Painting] {
+            ArtifactKindName::Painting,
+        ] {
             // Note: cloning is needed to end the immut. borrow to lib inside the loop
             //       Otherwise, call to .drain will try to borrow mutably => 💀 death
             let found_id = lib.find_artifact_by_kind(name);
             assert!(found_id.is_some());
-            let found_id = found_id.unwrap();  // clone the HashSet, not the Option!
+            let found_id = found_id.unwrap(); // clone the HashSet, not the Option!
             let found_id = found_id.clone().drain().collect::<Vec<u32>>();
             assert_eq!(found_id.len(), 1);
 
