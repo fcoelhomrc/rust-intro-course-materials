@@ -9,10 +9,12 @@ use thiserror::Error;
 // Estes métodos devem retornar objetos que podem ser nulos (Opcionais).
 
 // TODO: methods to read variant-specific fields ✅ Done
-// TODO: make sure find_* methods return Options
-// TODO: make sure fallible methods return Result
-// TODO: define meaningful error structures
-// TODO: purge the .unwrap calls UNLESS you previously checked unwrap never fails
+// TODO: make sure find_* methods return Options ✅ Done
+// TODO: make sure fallible methods return Result ✅ Done
+// TODO: define meaningful error structures ✅ Done
+// TODO: purge the .unwrap calls UNLESS you previously checked unwrap never fails ✅ Done
+
+// FIXME: CLI doesn't include getters, but unit tests cover all of them
 
 use std::io;
 
@@ -715,7 +717,7 @@ impl UserInput {
 }
 
 
-// FIXME: So much duplicated code... But I don't think it is worth it to bother 
+// FIXME: So much duplicated code... But I don't think it is worth it to bother
 //        cleaning this up. 🦀🦀🦀
 fn main() {
     let mut lib: Library = create_example_library();
