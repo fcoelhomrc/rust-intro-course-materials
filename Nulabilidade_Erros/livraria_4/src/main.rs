@@ -619,6 +619,7 @@ enum SystemMsg {
     NoMatchesFoundWarning,
     InvalidIDWarning { id: u32, ids: Vec<u32> },
     InvalidArtifactKindWarning { name: ArtifactKindName },
+    InvalidUserInputWarning,
 }
 
 impl SystemMsg {
@@ -673,23 +674,27 @@ impl SystemMsg {
             SystemMsg::InvalidArtifactKindWarning { name } => {
                 println!("Artifact of type {} cannot be loaned", name);
             }
+            SystemMsg::InvalidUserInputWarning => {
+                println!("Invalid user input. Hint: empty, failed to parse to u32 or f32, ...")
+            }
         }
     }
 }
 
+// TODO: Converter needs guards against parsing stuff!
 struct Converter {}
 impl Converter {
-    fn integer(str: String) -> u32 {
+    fn integer(str: String) -> Option<u32> {
         match str.parse::<u32>() {
-            Ok(integer) => integer,
-            Err(_) => todo!(),
+            Ok(integer) => Some(integer),
+            Err(_) => None,
         }
     }
 
-    fn float(str: String) -> f32 {
+    fn float(str: String) -> Option<f32> {
         match str.parse::<f32>() {
-            Ok(float) => float,
-            Err(_) => todo!(),
+            Ok(float) => Some(float),
+            Err(_) => None,
         }
     }
 }
@@ -709,14 +714,25 @@ impl UserInput {
     }
 }
 
+
+// FIXME: So much duplicated code... But I don't think it is worth it to bother 
+//        cleaning this up. 🦀🦀🦀
 fn main() {
     let mut lib: Library = create_example_library();
 
     SystemMsg::Welcome.display();
     loop {
         SystemMsg::OptionsMenu.display();
-        let option = UserInput::ask(Some("Select an option: "));
-        let option = Converter::integer(option.unwrap()); // TODO: is unwrap safe?
+        let input = UserInput::ask(Some("Select an option: "));
+
+        let Some(input) = input else {
+            continue;
+        };
+
+        let Some(option) = Converter::integer(input) else {
+            continue; // handle parsing problems gracefully
+        };
+
         match option {
             0 => break,
             1 => {
@@ -727,8 +743,16 @@ fn main() {
             }
             2 => {
                 let id = loop {
-                    let id = UserInput::ask(Some("Enter ID: "));
-                    let id = Converter::integer(id.unwrap()); // TODO: is unwrap safe?
+                    let input = UserInput::ask(Some("Enter ID: "));
+                    let Some(input) = input else {
+                        continue;
+                    };
+                    let id = Converter::integer(input);
+                    let Some(id) = id else {
+                        SystemMsg::InvalidUserInputWarning.display();
+                        continue;
+                    };
+
                     if lib.list_ids().contains(&id) {
                         SystemMsg::IDMustBeUniqueWarning.display();
                         SystemMsg::ArtifactIDs {
@@ -740,8 +764,15 @@ fn main() {
                         break id;
                     }
                 };
-                let units = UserInput::ask(Some("Enter units: "));
-                let units = Converter::integer(units.unwrap());
+                let input = UserInput::ask(Some("Enter units: "));
+                let Some(input) = input else {
+                    continue;
+                };
+                let units = Converter::integer(input);
+                let Some(units) = units else {
+                    SystemMsg::InvalidUserInputWarning.display();
+                    continue;
+                };
                 let title = UserInput::ask(Some("Enter title: ")).unwrap();
                 let author = UserInput::ask(Some("Enter author: ")).unwrap();
                 let keywords =
@@ -752,13 +783,30 @@ fn main() {
                     .map(String::from)
                     .collect::<Vec<_>>();
                 SystemMsg::ArtifactKindMenu.display();
-                let kind = UserInput::ask(Some("Select an option: "));
-                let kind = Converter::integer(kind.unwrap());
+                let input = UserInput::ask(Some("Select an option: "));
+                let Some(input) = input else {
+                    continue;
+                };
+                let kind = Converter::integer(input);
+                let Some(kind) = kind else {
+                    SystemMsg::InvalidUserInputWarning.display();
+                    continue;
+                };
+
                 let artifact = match kind {
                     0 => {
-                        let pages = UserInput::ask(Some("Enter pages: "));
-                        let pages = Converter::integer(pages.unwrap());
+                        let input = UserInput::ask(Some("Enter pages: "));
+                        let Some(input) = input else {
+                            continue;
+                        };
+                        let pages = Converter::integer(input);
+                        let Some(pages) = pages else {
+                            SystemMsg::InvalidUserInputWarning.display();
+                            continue;
+                        };
+
                         let isbn = UserInput::ask(Some("Enter ISBN: ")).unwrap();
+
                         Some(Artifact {
                             id,
                             units,
@@ -769,9 +817,17 @@ fn main() {
                         })
                     }
                     1 => {
-                        let duration_minutes =
-                            UserInput::ask(Some("Enter duration (in minutes): "));
-                        let duration_minutes = Converter::float(duration_minutes.unwrap());
+                        let input = UserInput::ask(Some("Enter duration (in minutes): "));
+                        let Some(input) = input else {
+                            continue;
+                        };
+                        let duration_minutes = Converter::float(input);
+                        let Some(duration_minutes) = duration_minutes else {
+                            SystemMsg::InvalidUserInputWarning.display();
+
+                            continue;
+                        };
+
                         let narrator = UserInput::ask(Some("Enter narrator: ")).unwrap();
                         Some(Artifact {
                             id,
@@ -787,16 +843,52 @@ fn main() {
                     }
                     2 => {
                         let dimensions_cm = {
-                            let width_cm = UserInput::ask(Some("Enter width (in cm): "));
-                            let width_cm = Converter::float(width_cm.unwrap());
-                            let depth_cm = UserInput::ask(Some("Enter depth (in cm): "));
-                            let depth_cm = Converter::float(depth_cm.unwrap());
+                            let input = UserInput::ask(Some("Enter width (in cm): "));
+                            let Some(input) = input else {
+                                continue;
+                            };
+                            let width_cm = Converter::float(input);
+                            let Some(width_cm) = width_cm else {
+                                SystemMsg::InvalidUserInputWarning.display();
+
+                                continue;
+                            };
+
+                            let input = UserInput::ask(Some("Enter depth (in cm): "));
+                            let Some(input) = input else {
+                                continue;
+                            };
+                            let depth_cm = Converter::float(input);
+                            let Some(depth_cm) = depth_cm else {
+                                SystemMsg::InvalidUserInputWarning.display();
+                                continue;
+                            };
+
                             (width_cm, depth_cm)
                         };
-                        let height_cm = UserInput::ask(Some("Enter height (in cm): "));
-                        let height_cm = Converter::float(height_cm.unwrap());
-                        let weight_kg = UserInput::ask(Some("Enter weight (in Kg): "));
-                        let weight_kg = Converter::float(weight_kg.unwrap());
+
+                        let input = UserInput::ask(Some("Enter height (in cm): "));
+                        let Some(input) = input else {
+                            continue;
+                        };
+                        let height_cm = Converter::float(input);
+                        let Some(height_cm) = height_cm else {
+                            SystemMsg::InvalidUserInputWarning.display();
+
+                            continue;
+                        };
+
+                        let input = UserInput::ask(Some("Enter weight (in Kg): "));
+                        let Some(input) = input else {
+                            continue;
+                        };
+                        let weight_kg = Converter::float(input);
+                        let Some(weight_kg) = weight_kg else {
+                            SystemMsg::InvalidUserInputWarning.display();
+
+                            continue;
+                        };
+
                         let material = UserInput::ask(Some("Enter material: ")).unwrap();
                         Some(Artifact {
                             id,
@@ -814,10 +906,28 @@ fn main() {
                     }
                     3 => {
                         let dimensions_cm = {
-                            let width_cm = UserInput::ask(Some("Enter width (in cm): "));
-                            let width_cm = Converter::float(width_cm.unwrap());
-                            let depth_cm = UserInput::ask(Some("Enter depth (in cm): "));
-                            let depth_cm = Converter::float(depth_cm.unwrap());
+                            let input = UserInput::ask(Some("Enter width (in cm): "));
+                            let Some(input) = input else {
+                                continue;
+                            };
+                            let width_cm = Converter::float(input);
+                            let Some(width_cm) = width_cm else {
+                                SystemMsg::InvalidUserInputWarning.display();
+
+                                continue;
+                            };
+
+                            let input = UserInput::ask(Some("Enter depth (in cm): "));
+                            let Some(input) = input else {
+                                continue;
+                            };
+                            let depth_cm = Converter::float(input);
+                            let Some(depth_cm) = depth_cm else {
+                                SystemMsg::InvalidUserInputWarning.display();
+
+                                continue;
+                            };
+
                             (width_cm, depth_cm)
                         };
                         let style = UserInput::ask(Some("Enter style: ")).unwrap();
@@ -855,8 +965,18 @@ fn main() {
                 }
             }
             3 => {
-                let id = UserInput::ask(Some("Enter ID: "));
-                let id = Converter::integer(id.unwrap()); // TODO: is unwrap safe?
+                let input = UserInput::ask(Some("Enter ID: "));
+                let Some(input) = input else {
+                    continue;
+                };
+                let id = Converter::integer(input);
+
+                let Some(id) = id else {
+                    SystemMsg::InvalidUserInputWarning.display();
+
+                    continue;
+                };
+
                 match lib.remove_artifact(id) {
                     Ok(_) => continue,
                     Err(LibraryError::IdNotAvailable(id, ids)) => {
@@ -866,10 +986,28 @@ fn main() {
                 }
             }
             4 => {
-                let id = UserInput::ask(Some("Enter ID: "));
-                let id = Converter::integer(id.unwrap()); // TODO: is unwrap safe?
-                let units = UserInput::ask(Some("Enter units: "));
-                let units = Converter::integer(units.unwrap());
+                let input = UserInput::ask(Some("Enter ID: "));
+                let Some(input) = input else {
+                    continue;
+                };
+                let id = Converter::integer(input);
+                let Some(id) = id else {
+                    SystemMsg::InvalidUserInputWarning.display();
+
+                    continue;
+                };
+
+                let input = UserInput::ask(Some("Enter units: "));
+                let Some(input) = input else {
+                    continue;
+                };
+                let units = Converter::integer(input);
+                let Some(units) = units else {
+                    SystemMsg::InvalidUserInputWarning.display();
+
+                    continue;
+                };
+
                 match lib.lend_artifact(id, units) {
                     Ok(_) => continue,
                     Err(LibraryError::IdNotAvailable(id, ids)) => {
@@ -885,10 +1023,28 @@ fn main() {
                 }
             }
             5 => {
-                let id = UserInput::ask(Some("Enter ID: "));
-                let id = Converter::integer(id.unwrap()); // TODO: is unwrap safe?
-                let units = UserInput::ask(Some("Enter units: "));
-                let units = Converter::integer(units.unwrap());
+                let input = UserInput::ask(Some("Enter ID: "));
+                let Some(input) = input else {
+                    continue;
+                };
+                let id = Converter::integer(input);
+                let Some(id) = id else {
+                    SystemMsg::InvalidUserInputWarning.display();
+
+                    continue;
+                };
+
+                let input = UserInput::ask(Some("Enter units: "));
+                let Some(input) = input else {
+                    continue;
+                };
+                let units = Converter::integer(input);
+                let Some(units) = units else {
+                    SystemMsg::InvalidUserInputWarning.display();
+
+                    continue;
+                };
+
                 match lib.return_artifact(id, units) {
                     Ok(_) => continue,
                     Err(LibraryError::IdNotAvailable(id, ids)) => {
@@ -902,12 +1058,30 @@ fn main() {
             }
             6 => {
                 SystemMsg::QueryMenu.display();
-                let query_mode = UserInput::ask(Some("Select an option: "));
-                let query_mode = Converter::integer(query_mode.unwrap()); // TODO: is unwrap safe?
+                let input = UserInput::ask(Some("Select an option: "));
+                let Some(input) = input else {
+                    continue;
+                };
+                let query_mode = Converter::integer(input);
+                let Some(query_mode) = query_mode else {
+                    SystemMsg::InvalidUserInputWarning.display();
+
+                    continue;
+                };
+
                 match query_mode {
                     0 => {
-                        let id = UserInput::ask(Some("Enter ID: "));
-                        let id = Converter::integer(id.unwrap()); // TODO: is unwrap safe?
+                        let input = UserInput::ask(Some("Enter ID: "));
+                        let Some(input) = input else {
+                            continue;
+                        };
+                        let id = Converter::integer(input);
+                        let Some(id) = id else {
+                            SystemMsg::InvalidUserInputWarning.display();
+
+                            continue;
+                        };
+
                         let artifact = lib.get_artifact_clone_by_id(id).unwrap();
                         SystemMsg::ArtifactData { artifact }.display();
                     }
@@ -943,9 +1117,17 @@ fn main() {
                     }
                     3 => {
                         SystemMsg::ArtifactKindMenu.display();
-                        let artifact_kind_option = UserInput::ask(Some("Select an option: "));
-                        let artifact_kind_option =
-                            Converter::integer(artifact_kind_option.unwrap()); // TODO: is unwrap safe?
+                        let input = UserInput::ask(Some("Select an option: "));
+                        let Some(input) = input else {
+                            continue;
+                        };
+                        let artifact_kind_option = Converter::integer(input);
+                        let Some(artifact_kind_option) = artifact_kind_option else {
+                            SystemMsg::InvalidUserInputWarning.display();
+
+                            continue;
+                        };
+
                         let name = match artifact_kind_option {
                             0 => Some(ArtifactKindName::Book),
                             1 => Some(ArtifactKindName::AudioBook),
@@ -1068,8 +1250,7 @@ mod test {
         // Statue -> cannot lend
         println!("LOOK AT MY BALLSSSS {}", lib.has_available_artifact(3, 1));
         assert!(!lib.can_lend(3));
-        assert!(lib.has_available_artifact(3, 1));   // cannot lend BUT there are units
-        
+        assert!(lib.has_available_artifact(3, 1)); // cannot lend BUT there are units
 
         println!(">>>> [CHECK UNITS] <<<<");
         println!("{:#?}", lib);
