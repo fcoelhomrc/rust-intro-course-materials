@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::io;
 use std::ops::Not;
 use thiserror::Error;
@@ -8,10 +9,18 @@ use thiserror::Error;
 // A nossa merceria deve ser capaz de ser utilizada para um tipo de item genérico.
 // Devemos manter todas as capacidades anteriores.
 
+// TODO: Define GroceryItem trait (only getters and setters for now)   [Done ✅]
+// TODO: Implement GroceryItem for Product   [Done ✅]
+// TODO: Refactor the GroceryStore implementation to use the GroceryItem trait methods
+//       instead of directly accessing Product fields [Done ✅]
+// TODO: Refactor to accept a generic type T
+//       implementing GroceryItem instead of a Product  [Done ✅]
+// TODO: Make sure things didn't break by the end of this :p  [Done ✅]
 
+// TODO: Create a alternate Product struct to derive GroceryItem and check that everything works
 
 #[derive(Debug, Error)]
-enum GroceryErrors {
+enum GroceryErrors<T: GroceryItem> {
     #[error("Row {0} already exists!")]
     RowAlreadyExists(String),
     #[error("Shelf {1} already exists in row {0}!")]
@@ -19,7 +28,7 @@ enum GroceryErrors {
     #[error("Zone {2} already exists in shelf {1}, row {0}!")]
     ZoneAlreadyExists(String, String, String),
     #[error("Product {3} already exists in zone {2}, shelf {1}, row {0}!")]
-    ProductAlreadyExists(String, String, String, Product),
+    ProductAlreadyExists(String, String, String, T),
     #[error("Product with ID {0} was not found!")]
     ProductNotFound(String),
     #[error("Row {0} was not found!")]
@@ -39,8 +48,8 @@ enum GroceryErrors {
 }
 
 #[derive(Debug)]
-struct GroceryStore {
-    rows: HashMap<String, Row>,
+struct GroceryStore<T: GroceryItem + Clone + Display> {
+    rows: HashMap<String, Row<T>>,
     product_map: HashMap<String, (String, String, String)>, // key: ID, value: (row, shelf, zone)
     cash: f32,
 }
@@ -48,31 +57,31 @@ struct GroceryStore {
 // Assumes unique product ids
 // Assumes a product cannot be in two different places at the same time
 // Assumes unique row / shelf / zone names (== ids)
-impl GroceryStore {
+impl<T: GroceryItem + Clone + Display> GroceryStore<T> {
     fn new() -> Self {
         // Self is an alias to struct name
         Self {
-            rows: HashMap::<String, Row>::new(),
+            rows: HashMap::<String, Row<T>>::new(),
             product_map: HashMap::<String, (String, String, String)>::new(),
             cash: 0.0,
         }
     }
 
-    fn add_row(&mut self, row_name: &str) -> Result<(), GroceryErrors> {
+    fn add_row(&mut self, row_name: &str) -> Result<(), GroceryErrors<T>> {
         if let Some(_) = self.rows.insert(row_name.to_string(), Row::new()) {
             return Err(GroceryErrors::RowAlreadyExists(row_name.to_string())); // e.g. trying to insert a row that already exists
-        } // TODO: return Result Error [✅ Done]
+        }
         Ok(())
     }
 
-    fn add_shelf(&mut self, row_name: &str, shelf_name: &str) -> Result<(), GroceryErrors> {
+    fn add_shelf(&mut self, row_name: &str, shelf_name: &str) -> Result<(), GroceryErrors<T>> {
         if let Some(row) = self.rows.get_mut(row_name) {
             if let Some(_) = row.shelves.insert(shelf_name.to_string(), Shelf::new()) {
                 return Err(GroceryErrors::ShelfAlreadyExists(
                     row_name.to_string(),
                     shelf_name.to_string(),
                 )); // e.g. trying to insert a shelf that already exists in the row
-            } // TODO: return Result Error [✅ Done]
+            }
         }
         Ok(())
     }
@@ -82,7 +91,7 @@ impl GroceryStore {
         row_name: &str,
         shelf_name: &str,
         zone_name: &str,
-    ) -> Result<(), GroceryErrors> {
+    ) -> Result<(), GroceryErrors<T>> {
         if let Some(row) = self.rows.get_mut(row_name) {
             if let Some(shelf) = row.shelves.get_mut(shelf_name) {
                 if let Some(_) = shelf.zones.insert(zone_name.to_string(), Zone::new()) {
@@ -91,7 +100,7 @@ impl GroceryStore {
                         shelf_name.to_string(),
                         zone_name.to_string(),
                     )); // e.g. trying to insert a zone that already exists in a shelf in a row
-                } // TODO: return Result Error [✅ Done]
+                }
             }
         }
         Ok(())
@@ -103,8 +112,8 @@ impl GroceryStore {
         row_name: &str,
         shelf_name: &str,
         zone_name: &str,
-        product: Product,
-    ) -> Result<(), GroceryErrors> {
+        product: T,
+    ) -> Result<(), GroceryErrors<T>> {
         // validate position
         let Some(row) = self.rows.get_mut(row_name) else {
             return Err(GroceryErrors::RowNotFound(row_name.to_string()));
@@ -125,7 +134,7 @@ impl GroceryStore {
 
         // update product_map
         self.product_map.insert(
-            product.id.clone(),
+            product.get_id(),
             (
                 row_name.to_string(),
                 shelf_name.to_string(),
@@ -136,7 +145,7 @@ impl GroceryStore {
         // add product
         if zone
             .products
-            .insert(product.id.clone(), product.clone())
+            .insert(product.get_id(), product.clone())
             .is_some()
         {
             return Err(GroceryErrors::ProductAlreadyExists(
@@ -149,7 +158,7 @@ impl GroceryStore {
         Ok(())
     }
 
-    fn remove_product(&mut self, id: &str) -> Result<Product, GroceryErrors> {
+    fn remove_product(&mut self, id: &str) -> Result<T, GroceryErrors<T>> {
         // find product
         let address = self.find_address_from_id(id);
         let (row_name, shelf_name, zone_name) = match address {
@@ -189,47 +198,51 @@ impl GroceryStore {
         }
     }
 
-    fn restock_product(&mut self, id: &str, units: u32) -> Result<(), GroceryErrors> {
+    fn restock_product(&mut self, id: &str, units: u32) -> Result<(), GroceryErrors<T>> {
         // find product
         let Some(product) = self.get_product_mut_from_id(id) else {
             return Err(GroceryErrors::ProductNotFound(id.to_string()));
         };
         // restock product
-        product.stock = product
-            .stock
+        let new_stock = product
+            .get_stock()
             .checked_add(units)
-            .ok_or(GroceryErrors::U32Overflow(units, product.stock))?;
+            .ok_or(GroceryErrors::U32Overflow(units, product.get_stock()))?;
+        product.set_stock(new_stock);
         Ok(())
-    } // TODO: should return Result [✅ Done]
+    }
 
-    fn sell_product(&mut self, id: &str, units: u32) -> Result<(), GroceryErrors> {
+    fn sell_product(&mut self, id: &str, units: u32) -> Result<(), GroceryErrors<T>> {
         // find product
-        let product = self.get_product_mut_from_id(id).unwrap();
+        let Some(product) = self.get_product_mut_from_id(id) else {
+            return Err(GroceryErrors::ProductNotFound(id.to_string()));
+        };
         // sell product
-        if units > product.stock {
+        if units > product.get_stock() {
             return Err(GroceryErrors::NotEnoughStock(
                 id.to_string(),
                 units,
-                product.stock,
+                product.get_stock(),
             ));
         } else {
-            product.stock -= units; // no need to check for underflow because of previous clause
-            self.cash += product.price * units as f32
+            let new_stock = product.get_stock() - units;
+            product.set_stock(new_stock); // no need to check for underflow because of previous clause
+            self.cash += product.get_price() * units as f32
         }
         Ok(())
-    } // TODO: should return Result [✅ Done]
+    }
 
-    fn change_product_name(&mut self, id: &str, new_name: &str) -> Result<(), GroceryErrors> {
+    fn change_product_name(&mut self, id: &str, new_name: &str) -> Result<(), GroceryErrors<T>> {
         // find product
         let Some(product) = self.get_product_mut_from_id(id) else {
             return Err(GroceryErrors::ProductNotFound(id.to_string()));
         };
         // change name
-        product.name = new_name.to_string();
+        product.set_name(new_name);
         Ok(())
-    } // TODO: should return Result [✅ Done]
+    }
 
-    fn change_product_price(&mut self, id: &str, new_price: f32) -> Result<(), GroceryErrors> {
+    fn change_product_price(&mut self, id: &str, new_price: f32) -> Result<(), GroceryErrors<T>> {
         // check input
         if new_price < 0.0 {
             return Err(GroceryErrors::InvalidPrice(new_price));
@@ -240,9 +253,9 @@ impl GroceryStore {
             return Err(GroceryErrors::ProductNotFound(id.to_string()));
         };
         // change name
-        product.price = new_price;
+        product.set_price(new_price);
         Ok(())
-    } // TODO: should return Result [✅ Done]
+    }
 
     fn change_product_position(
         &mut self,
@@ -250,7 +263,7 @@ impl GroceryStore {
         row_name: &str,
         shelf_name: &str,
         zone_name: &str,
-    ) -> Result<(), GroceryErrors> {
+    ) -> Result<(), GroceryErrors<T>> {
         // remove product (internally updates product map)
         let product = self.get_product_from_id(id);
         if let Some(product) = product {
@@ -259,12 +272,12 @@ impl GroceryStore {
         let _ = self.remove_product(id)?;
         Ok(())
         // add product (internally updates product map)
-    } // TODO: should return Result [✅ Done]
+    }
 
     // methods to find products in the store
 
     // requires lookups - efficient
-    fn get_product_from_id(&self, product_id: &str) -> Option<&Product> {
+    fn get_product_from_id(&self, product_id: &str) -> Option<&T> {
         let Some((row_name, shelf_name, zone_name)) = self.find_address_from_id(product_id) else {
             return None; // product id not found!
         };
@@ -280,7 +293,7 @@ impl GroceryStore {
     }
 
     // requires lookups - efficient
-    fn get_product_mut_from_id(&mut self, product_id: &str) -> Option<&mut Product> {
+    fn get_product_mut_from_id(&mut self, product_id: &str) -> Option<&mut T> {
         let Some((row_name, shelf_name, zone_name)) = self.find_address_from_id(product_id) else {
             return None; // product id not found!
         };
@@ -312,7 +325,7 @@ impl GroceryStore {
         row_name: Option<&str>,
         shelf_name: Option<&str>,
         zone_name: Option<&str>,
-    ) -> Result<(), GroceryErrors> {
+    ) -> Result<(), GroceryErrors<T>> {
         // cool example to have variable number of arguments
         match (row_name, shelf_name, zone_name) {
             // matching a tuple!
@@ -334,7 +347,7 @@ impl GroceryStore {
                 };
                 return Err(GroceryErrors::InvalidArguments(
                     row_name, shelf_name, zone_name,
-                )); // FIXME: result: Error (incorrect arguments) [✅ Done]
+                ));
             }
         }
         Ok(())
@@ -384,42 +397,56 @@ impl GroceryStore {
 }
 
 #[derive(Debug, Clone)]
-struct Row {
-    shelves: HashMap<String, Shelf>,
+struct Row<T: GroceryItem> {
+    shelves: HashMap<String, Shelf<T>>,
 }
 
-impl Row {
+impl<T: GroceryItem> Row<T> {
     fn new() -> Self {
         Self {
-            shelves: HashMap::<String, Shelf>::new(),
+            shelves: HashMap::<String, Shelf<T>>::new(),
         }
     }
 }
 
 #[derive(Debug, Clone)]
-struct Shelf {
-    zones: HashMap<String, Zone>,
+struct Shelf<T: GroceryItem> {
+    zones: HashMap<String, Zone<T>>,
 }
 
-impl Shelf {
+impl<T: GroceryItem> Shelf<T> {
     fn new() -> Self {
         Self {
-            zones: HashMap::<String, Zone>::new(),
+            zones: HashMap::<String, Zone<T>>::new(),
         }
     }
 }
 
 #[derive(Debug, Clone)]
-struct Zone {
-    products: HashMap<String, Product>,
+struct Zone<T: GroceryItem> {
+    products: HashMap<String, T>,
 }
 
-impl Zone {
+impl<T: GroceryItem> Zone<T> {
     fn new() -> Self {
         Self {
-            products: HashMap::<String, Product>::new(),
+            products: HashMap::<String, T>::new(),
         }
     }
+}
+
+
+trait GroceryItem {
+    fn get_id(&self) -> String;  // READ-ONLY! (no setter)
+    fn get_name(&self) -> String;
+    fn get_expiration_date(&self) -> String;
+    fn get_price(&self) -> f32;
+    fn get_stock(&self) -> u32;
+
+    fn set_name(&mut self, name: &str);
+    fn set_expiration_date(&mut self, expiration_date: &str);
+    fn set_price(&mut self, price: f32);
+    fn set_stock(&mut self, stock: u32);
 }
 
 #[derive(Debug, Clone)]
@@ -453,7 +480,45 @@ impl std::fmt::Display for Product {
     }
 }
 
-fn build_store() -> Result<GroceryStore, GroceryErrors> {
+impl GroceryItem for Product {
+    fn get_id(&self) -> String {
+        self.id.clone()
+    }
+
+    fn get_name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn get_expiration_date(&self) -> String {
+        self.expiration_date.clone()
+    }
+
+    fn get_price(&self) -> f32 {
+        self.price
+    }
+
+    fn get_stock(&self) -> u32 {
+        self.stock
+    }
+
+    fn set_name(&mut self, name: &str) {
+        self.name = name.to_string();
+    }
+
+    fn set_expiration_date(&mut self, expiration_date: &str) {
+        self.expiration_date = expiration_date.to_string();
+    }
+
+    fn set_price(&mut self, price: f32) {
+        self.price = price;
+    }
+
+    fn set_stock(&mut self, stock: u32) {
+        self.stock = stock;
+    }
+}
+
+fn build_store<T: GroceryItem + Clone + Display>() -> Result<GroceryStore<T>, GroceryErrors<T>> {
     let mut store = GroceryStore::new();
 
     store.add_row("food")?;
@@ -477,7 +542,7 @@ fn build_store() -> Result<GroceryStore, GroceryErrors> {
     Ok(store)
 }
 
-fn populate_store(store: &mut GroceryStore) -> Result<(), GroceryErrors> {
+fn populate_store(store: &mut GroceryStore<Product>) -> Result<(), GroceryErrors<Product>> {
     store.add_product(
         "food",
         "healthy",
@@ -577,6 +642,7 @@ fn populate_store(store: &mut GroceryStore) -> Result<(), GroceryErrors> {
     )?;
     Ok(())
 }
+
 
 // CLI STUFF
 #[derive(Debug, Error)]
